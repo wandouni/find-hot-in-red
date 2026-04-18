@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "XHS Insight Collector",
+  "version": "1.0.0",
+  "description": "采集小红书笔记数据到本地数据库",
+  "permissions": ["tabs", "scripting", "storage", "notifications", "activeTab"],
+  "host_permissions": [
+    "https://www.xiaohongshu.com/*",
+    "http://localhost:8000/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "XHS Insight"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.xiaohongshu.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

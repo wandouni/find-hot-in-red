@@ -1,0 +1,17 @@
+# XHS Insight 配置文件 — 只需修改此文件
+llm:
+  provider: 'openai'        # openai / anthropic / zhipu / qwen
+  api_key: 'sk-xxxxx'       # 填入你的 API Key
+  api_base: ''              # 非官方地址时填写，如 https://api.xxx.com/v1
+  model: 'gpt-4o'
+  vision_model: 'gpt-4o'
+
+crawler:
+  max_notes_per_keyword: 30
+  top_comments: 10
+  delay_min_ms: 1500
+  delay_max_ms: 4000
+
+server:
+  backend_port: 8000
+  frontend_port: 3000
