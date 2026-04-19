@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { fetchNotes } from '@/lib/api';
 import { NoteCard } from './components/NoteCard';
 import { FilterBar } from './components/FilterBar';
+import { ExportButton } from './components/ExportButton';
 
 const PAGE_SIZE = 20;
 
@@ -45,6 +46,7 @@ async function Dashboard({ searchParams }: { searchParams: SearchParams }) {
           数据看板
           <span className="ml-2 text-sm text-gray-400 font-normal">共 {data.total} 篇</span>
         </h1>
+        <ExportButton keyword={keyword || undefined} />
       </div>
 
       <Suspense>
