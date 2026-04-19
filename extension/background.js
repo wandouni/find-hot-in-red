@@ -99,46 +99,72 @@ async function getNoteIds(tabId) {
 }
 
 /**
- * Click the note link with the given ID in the current page.
- * XHS JS intercepts the click and injects the xsec_token before navigation.
+ * Click the note link using chrome.debugger Input events (isTrusted: true).
  *
- * IMPORTANT: We must NOT return a Promise from the injected func that
- * resolves after link.click(), because the page navigates away immediately
- * after click, destroying the script context and preventing the Promise
- * from ever resolving. Instead we fire events + click synchronously and
- * return true immediately; the caller uses waitForNavigation() to confirm.
+ * element.click() / dispatchEvent() produce isTrusted:false events, which
+ * XHS detects and refuses to inject xsec_token for. The only way to produce
+ * isTrusted:true clicks from an extension is via the Chrome DevTools Protocol
+ * (chrome.debugger API), which goes through the browser's real input pipeline.
+ *
+ * Returns true if a link was found and clicked, false otherwise.
  */
 async function clickNoteLink(tabId, noteId) {
-  // Step 1: fire hover events so XHS JS can prepare the token
-  await chrome.scripting.executeScript({
+  // Find the on-screen coordinates of the link element
+  const posResult = await chrome.scripting.executeScript({
     target: { tabId },
     func: (id) => {
       const links = Array.from(document.querySelectorAll('a[href*="/explore/"]'))
         .filter(a => (a.getAttribute('href') || '').includes(id));
-      if (!links.length) return;
-      const link = links[0];
-      link.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-      link.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      if (!links.length) return null;
+      const rect = links[0].getBoundingClientRect();
+      // Clamp to visible area so the event lands inside the viewport
+      return {
+        x: Math.round(Math.max(1, Math.min(rect.left + rect.width / 2, window.innerWidth - 1))),
+        y: Math.round(Math.max(1, Math.min(rect.top + rect.height / 2, window.innerHeight - 1))),
+      };
     },
     args: [noteId],
   });
 
-  // Step 2: small delay for XHS JS to react to hover events
-  await sleep(300);
+  const pos = posResult[0]?.result;
+  if (!pos) {
+    console.warn('[XHS] Link element not found for note:', noteId);
+    return false;
+  }
 
-  // Step 3: click synchronously — page will navigate away, no return value needed
-  const results = await chrome.scripting.executeScript({
-    target: { tabId },
-    func: (id) => {
-      const links = Array.from(document.querySelectorAll('a[href*="/explore/"]'))
-        .filter(a => (a.getAttribute('href') || '').includes(id));
-      if (!links.length) return false;
-      links[0].click();
-      return true;
-    },
-    args: [noteId],
-  });
-  return results[0]?.result || false;
+  const target = { tabId };
+  try {
+    await chrome.debugger.attach(target, '1.3');
+  } catch (e) {
+    // Already attached (e.g. from a previous failed attempt) — detach and retry
+    console.warn('[XHS] Debugger attach failed, retrying:', e.message);
+    await chrome.debugger.detach(target).catch(() => {});
+    await sleep(200);
+    await chrome.debugger.attach(target, '1.3');
+  }
+
+  try {
+    // 1. Move mouse onto the element (triggers XHS hover handlers)
+    await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
+      type: 'mouseMoved', x: pos.x, y: pos.y, modifiers: 0,
+    });
+    await sleep(350); // give XHS time to react to hover (token prep)
+
+    // 2. Press + release = real click with isTrusted:true
+    await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
+      type: 'mousePressed', x: pos.x, y: pos.y,
+      button: 'left', clickCount: 1, modifiers: 0,
+    });
+    await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
+      type: 'mouseReleased', x: pos.x, y: pos.y,
+      button: 'left', clickCount: 1, modifiers: 0,
+    });
+  } finally {
+    // Detach immediately — minimises the "DevTools is debugging" banner duration
+    await chrome.debugger.detach(target).catch(() => {});
+  }
+
+  return true;
 }
 
 /**
