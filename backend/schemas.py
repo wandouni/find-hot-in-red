@@ -43,6 +43,7 @@ class CommentOut(BaseModel):
 
 class NoteOut(BaseModel):
     id: str
+    task_id: Optional[int] = None
     keyword: Optional[str]
     title: Optional[str]
     author: Optional[str]
@@ -65,6 +66,7 @@ class NoteDetail(NoteOut):
 class TaskCreate(BaseModel):
     keywords: list[str]
     total: int = 0
+    date_filter: int = 0  # 0=不限, 1=1天, 2=2天, 7=1周
 
 
 class TaskUpdate(BaseModel):
@@ -79,6 +81,7 @@ class TaskOut(BaseModel):
     status: str
     total: int
     done: int
+    date_filter: int
     created_at: datetime
 
     model_config = {"from_attributes": True}

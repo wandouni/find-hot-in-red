@@ -7,34 +7,39 @@ const DownloadIcon = () => (
 );
 
 interface ExportButtonProps {
-  keyword?: string;
+  taskId: number;
+  taskMeta: {
+    keywords: string[];
+    period: string;
+    date: string;
+  };
 }
 
-export function ExportButton({ keyword }: ExportButtonProps) {
-  const qs = keyword ? `?keyword=${encodeURIComponent(keyword)}` : '';
-  const label = keyword ? `「${keyword}」` : '全部';
+export function ExportButton({ taskId, taskMeta }: ExportButtonProps) {
+  const base = `http://localhost:8000/api/export`;
+  const qs = `?task_id=${taskId}`;
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 shrink-0">
       <a
-        href={`http://localhost:8000/api/export/notes.md${qs}`}
+        href={`${base}/notes.md${qs}`}
         download
         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm
                    bg-blue-50 text-blue-700 border border-blue-200
                    hover:bg-blue-100 hover:border-blue-300 transition-colors"
       >
         <DownloadIcon />
-        导出{label} MD
+        导出 MD
       </a>
       <a
-        href={`http://localhost:8000/api/export/notes${qs}`}
+        href={`${base}/notes${qs}`}
         download
         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm
                    bg-green-50 text-green-700 border border-green-200
                    hover:bg-green-100 hover:border-green-300 transition-colors"
       >
         <DownloadIcon />
-        导出{label} Excel
+        导出 Excel
       </a>
     </div>
   );

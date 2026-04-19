@@ -9,8 +9,8 @@ llm:
 crawler:
   max_notes_per_keyword: 30
   top_comments: 10
-  delay_min_ms: 1500
-  delay_max_ms: 4000
+  delay_min_ms: 6000   # between-note browsing delay min (ms)
+  delay_max_ms: 16000  # between-note browsing delay max (ms)
 
 server:
   backend_port: 8000

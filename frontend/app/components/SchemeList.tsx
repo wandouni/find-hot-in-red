@@ -12,7 +12,7 @@ const STATUS_MAP: Record<string, { label: string; cls: string }> = {
 
 function fmt(iso: string) {
   return new Date(iso).toLocaleString('zh-CN', {
-    month: '2-digit', day: '2-digit',
+    year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit',
   });
 }
@@ -23,7 +23,7 @@ const TrashIcon = () => (
   </svg>
 );
 
-export default function TasksPage() {
+export function SchemeList() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -44,7 +44,9 @@ export default function TasksPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  function toggleSelect(id: number) {
+  function toggleSelect(id: number, e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
     setSelected(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -60,7 +62,7 @@ export default function TasksPage() {
   }
 
   async function handleDeleteSelected() {
-    if (!confirm(`确定删除选中的 ${selected.size} 个任务及其所有笔记数据？此操作不可撤销。`)) return;
+    if (!confirm(`确定删除选中的 ${selected.size} 个方案及其所有笔记数据？此操作不可撤销。`)) return;
     setBusy(true);
     try {
       await deleteTasks(Array.from(selected));
@@ -76,7 +78,7 @@ export default function TasksPage() {
   async function handleDeleteOne(id: number, e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
-    if (!confirm('确定删除该任务及其所有笔记数据？此操作不可撤销。')) return;
+    if (!confirm('确定删除该方案及其所有笔记数据？此操作不可撤销。')) return;
     setBusy(true);
     try {
       await deleteTask(id);
@@ -89,13 +91,27 @@ export default function TasksPage() {
     }
   }
 
+  if (loading) {
+    return <div className="text-center py-16 text-gray-400">加载中...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-16 text-gray-400">
+        <p className="text-lg mb-2">无法连接到后端</p>
+        <p className="text-sm">请确认已运行 ./start.sh</p>
+      </div>
+    );
+  }
+
   const allSelected = tasks.length > 0 && selected.size === tasks.length;
 
   return (
     <>
+      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          {tasks.length > 0 && !loading && (
+          {tasks.length > 0 && (
             <input
               type="checkbox"
               checked={allSelected}
@@ -105,10 +121,8 @@ export default function TasksPage() {
             />
           )}
           <h1 className="text-lg font-semibold text-gray-700">
-            采集任务
-            {!loading && (
-              <span className="ml-2 text-sm text-gray-400 font-normal">共 {tasks.length} 次</span>
-            )}
+            选择学习方案
+            <span className="ml-2 text-sm text-gray-400 font-normal">共 {tasks.length} 个方案</span>
           </h1>
         </div>
 
@@ -125,23 +139,16 @@ export default function TasksPage() {
               删除选中 ({selected.size})
             </button>
           )}
-          <a href="/" className="text-sm text-gray-400 hover:text-red-500 transition-colors">
-            ← 数据看板
+          <a href="/tasks" className="text-sm text-gray-400 hover:text-red-500 transition-colors">
+            采集任务管理 →
           </a>
         </div>
       </div>
 
-      {loading ? (
-        <div className="text-center py-16 text-gray-400">加载中...</div>
-      ) : error ? (
+      {tasks.length === 0 ? (
         <div className="text-center py-16 text-gray-400">
-          <p className="text-lg mb-2">无法连接到后端</p>
-          <p className="text-sm">请确认已运行 ./start.sh</p>
-        </div>
-      ) : tasks.length === 0 ? (
-        <div className="text-center py-16 text-gray-400">
-          <p className="text-lg mb-2">暂无采集任务</p>
-          <p className="text-sm">使用 Chrome 插件开始采集后，任务记录将显示在这里</p>
+          <p className="text-lg mb-2">暂无采集方案</p>
+          <p className="text-sm">使用 Chrome 插件开始采集，每次采集即创建一个学习方案</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -149,14 +156,13 @@ export default function TasksPage() {
             const status = STATUS_MAP[task.status] ?? { label: task.status, cls: 'bg-gray-100 text-gray-500' };
             const keywords = task.keywordList ?? [];
             const period = DATE_FILTER_LABEL[task.date_filter] ?? '不限';
-            const pct = task.total > 0 ? Math.round((task.done / task.total) * 100) : 0;
             const isSelected = selected.has(task.id);
 
             return (
               <div key={task.id} className="relative group">
-                {/* Checkbox */}
+                {/* Checkbox overlay */}
                 <button
-                  onClick={() => toggleSelect(task.id)}
+                  onClick={(e) => toggleSelect(task.id, e)}
                   className={`absolute top-3 left-3 z-10 w-5 h-5 rounded border-2 flex items-center justify-center transition-all
                     ${isSelected
                       ? 'bg-red-500 border-red-500'
@@ -177,15 +183,20 @@ export default function TasksPage() {
                   className="absolute top-3 right-3 z-10 w-7 h-7 rounded-lg flex items-center justify-center
                              text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all
                              opacity-0 group-hover:opacity-100 disabled:opacity-30"
-                  title="删除任务"
+                  title="删除方案"
                 >
                   <TrashIcon />
                 </button>
 
-                <div className={`bg-white rounded-xl border shadow-sm p-5 transition-all
-                  ${isSelected ? 'border-red-300 bg-red-50' : 'border-gray-200'}`}
+                {/* Card */}
+                <a
+                  href={`/?task_id=${task.id}`}
+                  className={`block rounded-xl border shadow-sm p-5 transition-all
+                    ${isSelected
+                      ? 'border-red-300 bg-red-50 shadow-md'
+                      : 'border-gray-200 bg-white hover:border-red-300 hover:shadow-md'
+                    }`}
                 >
-                  {/* Header */}
                   <div className="flex items-start justify-between gap-3 mb-3 pl-5">
                     <div className="flex items-center gap-2">
                       <span className="text-gray-400 text-sm font-mono">#{task.id}</span>
@@ -199,7 +210,6 @@ export default function TasksPage() {
                     <span className="text-xs text-gray-400 shrink-0 pr-6">{fmt(task.created_at)}</span>
                   </div>
 
-                  {/* Keywords */}
                   <div className="flex flex-wrap gap-1.5 mb-4">
                     {keywords.length > 0 ? keywords.map(kw => (
                       <span key={kw} className="inline-block text-xs px-2.5 py-1 rounded-full bg-red-50 text-red-600 border border-red-100">
@@ -210,30 +220,13 @@ export default function TasksPage() {
                     )}
                   </div>
 
-                  {/* Progress */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs text-gray-500">
-                      <span>采集进度</span>
-                      <span className="font-medium text-gray-700">{task.done} / {task.total} 篇</span>
-                    </div>
-                    <div className="w-full bg-gray-100 rounded-full h-1.5">
-                      <div
-                        className={`h-1.5 rounded-full transition-all ${
-                          task.status === 'done' ? 'bg-green-500' :
-                          task.status === 'running' ? 'bg-blue-500' : 'bg-gray-400'
-                        }`}
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-500">共 <strong className="text-gray-700">{task.done}</strong> 篇笔记</span>
+                    <span className="text-red-400 text-xs group-hover:text-red-600 transition-colors">
+                      查看方案 →
+                    </span>
                   </div>
-
-                  {/* Actions */}
-                  <div className="mt-3 pt-3 border-t border-gray-100">
-                    <a href={`/?task_id=${task.id}`} className="text-xs text-gray-500 hover:text-red-500 transition-colors">
-                      查看方案笔记 →
-                    </a>
-                  </div>
-                </div>
+                </a>
               </div>
             );
           })}

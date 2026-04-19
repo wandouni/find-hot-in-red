@@ -15,6 +15,9 @@ def ingest_notes(payload: IngestRequest, db: Session = Depends(get_db)):
     for note_in in payload.notes:
         existing = db.get(Note, note_in.id)
         note_data = note_in.model_dump(exclude={"comments"})
+        # Attach to scheme
+        if payload.task_id:
+            note_data["task_id"] = payload.task_id
 
         if existing:
             for k, v in note_data.items():

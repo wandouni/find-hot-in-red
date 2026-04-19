@@ -8,10 +8,61 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function randomDelay() {
-  const ms = CONFIG.DELAY_MIN_MS +
-    Math.random() * (CONFIG.DELAY_MAX_MS - CONFIG.DELAY_MIN_MS);
-  return sleep(ms);
+/** Random ms between min and max. */
+function rand(min, max) {
+  return min + Math.random() * (max - min);
+}
+
+/**
+ * Apply ±factor jitter to a fixed duration, so no sleep is ever exactly
+ * the same length. E.g. jitter(3000, 0.4) → 1800–4200ms.
+ */
+function jitter(ms, factor = 0.35) {
+  return ms * (1 + (Math.random() * 2 - 1) * factor);
+}
+
+/**
+ * Primary between-note delay — the main anti-bot lever.
+ * Reads from CONFIG so changing config.js or config.yaml is enough.
+ */
+function browsingDelay() {
+  return sleep(rand(CONFIG.DELAY_MIN_MS, CONFIG.DELAY_MAX_MS));
+}
+
+/**
+ * Simulate time spent reading a note.
+ * Tri-modal: quick glance / normal read / deep read.
+ */
+function readingDelay() {
+  const r = Math.random();
+  if (r < 0.55) return sleep(rand(5000, 12000));   // quick–normal read
+  if (r < 0.85) return sleep(rand(12000, 22000));  // thorough read
+  return sleep(rand(22000, 40000));                // deep / distracted read
+}
+
+/**
+ * Settle time after landing on a page — replaces the old fixed sleeps.
+ * Shorter than readingDelay; just long enough for XHS to finish rendering.
+ */
+function settleDelay(minMs = 1500, maxMs = 4000) {
+  return sleep(rand(minMs, maxMs));
+}
+
+/**
+ * Break every ~BREAK_EVERY notes to simulate fatigue / distraction.
+ * Duration grows slightly with total notes done (longer session → longer break).
+ */
+const BREAK_EVERY_MIN = 5;
+const BREAK_EVERY_MAX = 9;
+let nextBreakAt = Math.floor(rand(BREAK_EVERY_MIN, BREAK_EVERY_MAX));
+
+async function maybeRest(totalDone) {
+  if (totalDone < nextBreakAt) return;
+  nextBreakAt = totalDone + Math.floor(rand(BREAK_EVERY_MIN, BREAK_EVERY_MAX));
+  const restMs = rand(25000, 60000); // 25–60s break
+  console.log(`[XHS] Rest break ${Math.round(restMs / 1000)}s after ${totalDone} notes`);
+  sendProgress(`稍作休息 ${Math.round(restMs / 1000)}s，模拟人工浏览…`);
+  await sleep(restMs);
 }
 
 function sendProgress(text) {
@@ -30,7 +81,7 @@ function sendDone(text) {
 }
 
 /** Wait for a tab to reach status='complete', with timeout fallback. */
-function waitForLoad(tabId, timeout = 15000) {
+function waitForLoad(tabId, timeout = 18000) {
   return new Promise(resolve => {
     const timer = setTimeout(() => {
       chrome.tabs.onUpdated.removeListener(listener);
@@ -49,9 +100,6 @@ function waitForLoad(tabId, timeout = 15000) {
 
 /**
  * Read note links captured by interceptor.js (window.__xhsLinks).
- * interceptor.js runs in MAIN world at document_start and wraps
- * window.fetch/XHR to extract xsec_token from XHS API responses.
- * We must also use world:'MAIN' here to read from the same window object.
  */
 async function getCapturedLinks(tabId) {
   try {
@@ -69,13 +117,32 @@ async function getCapturedLinks(tabId) {
   }
 }
 
-/** Scroll down to trigger XHS lazy-loading and new API calls. */
-async function scrollAndWait(tabId) {
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    func: () => window.scrollBy({ top: 800, behavior: 'smooth' }),
-  }).catch(() => {});
-  await sleep(2500);
+/**
+ * Human-like scrolling: several irregular small scrolls, optional scroll-back.
+ * Replaces the old single scrollBy(800).
+ */
+async function humanScroll(tabId) {
+  const passes = 2 + Math.floor(Math.random() * 3); // 2–4 scroll steps
+  for (let i = 0; i < passes; i++) {
+    const amt = Math.round(rand(250, 750));
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (a) => window.scrollBy({ top: a, behavior: 'smooth' }),
+      args: [amt],
+    }).catch(() => {});
+    await sleep(rand(600, 1600)); // pause between scroll steps
+  }
+  // 25% chance: scroll back up a little (real user re-reads or misses a card)
+  if (Math.random() < 0.25) {
+    const up = Math.round(rand(80, 250));
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (a) => window.scrollBy({ top: -a, behavior: 'smooth' }),
+      args: [up],
+    }).catch(() => {});
+    await sleep(rand(400, 900));
+  }
+  await sleep(rand(800, 2000)); // settle after scroll sequence
 }
 
 /**
@@ -177,8 +244,6 @@ async function scrapeCurrentPage(tabId, keyword, noteId) {
 
 /**
  * Parse XHS publish_date strings into "days ago" (float).
- * XHS uses many formats: 刚刚 / N分钟前 / N小时前 / 昨天 / N天前 / MM-DD / YYYY-MM-DD
- * Returns Infinity for unparseable strings so they are treated as "too old".
  */
 function parseDaysAgo(publishDate) {
   if (!publishDate) return Infinity;
@@ -199,16 +264,13 @@ function parseDaysAgo(publishDate) {
   m = s.match(/^(\d+)\s*天前$/);
   if (m) return parseInt(m[1]);
 
-  // MM-DD (current year assumed)
   m = s.match(/^(\d{1,2})-(\d{2})$/);
   if (m) {
     const d = new Date(now.getFullYear(), parseInt(m[1]) - 1, parseInt(m[2]));
-    // If the resulting date is in the future, it's last year
     if (d > now) d.setFullYear(d.getFullYear() - 1);
     return (now - d) / 86400000;
   }
 
-  // YYYY-MM-DD
   m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (m) {
     const d = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
@@ -219,11 +281,13 @@ function parseDaysAgo(publishDate) {
 }
 
 /** POST a batch of notes to the backend. */
-async function pushNotes(notes) {
+async function pushNotes(notes, taskId) {
+  const body = { notes };
+  if (taskId) body.task_id = taskId;
   const resp = await fetch(`${CONFIG.BACKEND_URL}/api/notes`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ notes }),
+    body: JSON.stringify(body),
   });
   if (!resp.ok) throw new Error(`Backend error: ${resp.status}`);
   return resp.json();
@@ -232,28 +296,33 @@ async function pushNotes(notes) {
 /**
  * Process one keyword.
  *
- * interceptor.js (document_start, MAIN world) has already wrapped fetch/XHR
- * on this tab and is populating window.__xhsLinks with token URLs as XHS
- * makes its search API calls. We poll that map, then navigate directly.
+ * Timing per note (approximate):
+ *   • readingDelay on note page:  5–40s
+ *   • settle after returning:     1.5–4s
+ *   • browsingDelay between notes: DELAY_MIN–DELAY_MAX
+ *   • occasional rest break:      25–60s every 5–9 notes
+ *
+ * Per-keyword total for 20 notes ≈ 5–15 minutes.
  */
-async function processKeyword(tabId, keyword, maxNotes, dateFilter = 0) {
+async function processKeyword(tabId, keyword, maxNotes, dateFilter = 0, totalDoneSoFar = 0) {
   const searchUrl =
     `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(keyword)}&type=51`;
 
   await chrome.tabs.update(tabId, { url: searchUrl });
   await waitForLoad(tabId);
-  await sleep(3000); // wait for XHS initial API call to complete
+  await settleDelay(3000, 6000); // longer settle — let XHS fire its initial API calls
 
   const collected = [];
   const seenIds = new Set();
   let noNewRounds = 0;
-  const MAX_NO_NEW = 6;
+  const MAX_NO_NEW = 8;
+  let notesThisKeyword = 0;
 
   while (collected.length < maxNotes) {
     if (stopRequested) break;
 
     const links = await getCapturedLinks(tabId);
-    console.log(`[XHS] Captured=${links.length} seen=${seenIds.size}`);
+    console.log(`[XHS] Captured=${links.length} seen=${seenIds.size} collected=${collected.length}`);
     const newLinks = links.filter(l => !seenIds.has(l.id));
 
     if (newLinks.length === 0) {
@@ -262,7 +331,7 @@ async function processKeyword(tabId, keyword, maxNotes, dateFilter = 0) {
         console.log('[XHS] No new links after scrolling, stopping.');
         break;
       }
-      await scrollAndWait(tabId);
+      await humanScroll(tabId);
       continue;
     }
 
@@ -272,13 +341,26 @@ async function processKeyword(tabId, keyword, maxNotes, dateFilter = 0) {
       if (stopRequested || collected.length >= maxNotes) break;
       seenIds.add(noteId);
 
-      sendProgress(`关键词「${keyword}」: 正在抓取 ${collected.length + 1}/${maxNotes}...`);
+      // 8% chance: skip this note (simulate user glancing past it)
+      if (Math.random() < 0.08) {
+        console.log(`[XHS] Skipping (simulated) ${noteId}`);
+        continue;
+      }
+
+      sendProgress(`关键词「${keyword}」: 正在抓取 ${collected.length + 1}/${maxNotes}…`);
       console.log(`[XHS] → ${noteUrl.slice(0, 100)}`);
 
       try {
         await chrome.tabs.update(tabId, { url: noteUrl });
         await waitForLoad(tabId);
-        await sleep(2500);
+
+        // Simulate reading the note
+        await readingDelay();
+
+        // 30% chance: scroll down on the note page (reading comments / body)
+        if (Math.random() < 0.30) {
+          await humanScroll(tabId);
+        }
 
         const tab = await chrome.tabs.get(tabId);
         console.log(`[XHS] Landed: ${tab.url?.slice(0, 100)}`);
@@ -287,48 +369,47 @@ async function processKeyword(tabId, keyword, maxNotes, dateFilter = 0) {
           const note = await scrapeCurrentPage(tabId, keyword, noteId);
           if (!note) {
             console.warn('[XHS] Scrape null:', noteId);
-          } else if (dateFilter > 0) {
-            const daysAgo = parseDaysAgo(note.publish_date);
-            if (daysAgo > dateFilter) {
-              console.log(`[XHS] Skip (>${dateFilter}d): "${note.publish_date}" = ${daysAgo.toFixed(1)}d ago`);
-            } else {
-              collected.push(note);
-              console.log(`[XHS] OK: "${note.title}" likes=${note.likes}`);
-            }
+          } else if (dateFilter > 0 && parseDaysAgo(note.publish_date) > dateFilter) {
+            console.log(`[XHS] Skip date (>${dateFilter}d): "${note.publish_date}"`);
           } else {
             collected.push(note);
+            notesThisKeyword++;
             console.log(`[XHS] OK: "${note.title}" likes=${note.likes}`);
           }
         } else {
           console.warn('[XHS] Not on note page:', tab.url);
         }
 
-        // Return to search page — interceptor.js auto-re-injects on new page load
+        // Return to search page
         await chrome.tabs.update(tabId, { url: searchUrl });
         await waitForLoad(tabId);
-        await sleep(2000);
+        await settleDelay(1500, 4500);
 
       } catch (e) {
         console.warn('[XHS] Error on note', noteId, ':', e.message);
         await chrome.tabs.update(tabId, { url: searchUrl }).catch(() => {});
         await waitForLoad(tabId);
-        await sleep(3000);
+        await settleDelay(3000, 7000); // longer recovery after error
       }
 
-      await randomDelay();
+      // Main between-note browsing delay
+      await browsingDelay();
+
+      // Periodic rest break (based on total notes done across all keywords)
+      await maybeRest(totalDoneSoFar + notesThisKeyword);
     }
   }
 
   return collected;
 }
 
-/** Create a task record in the backend and return the task ID. */
-async function createTaskRecord(keywords, total) {
+/** Create a task record in the backend. */
+async function createTaskRecord(keywords, total, dateFilter) {
   try {
     const resp = await fetch(`${CONFIG.BACKEND_URL}/api/tasks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keywords, total }),
+      body: JSON.stringify({ keywords, total, date_filter: dateFilter || 0 }),
     });
     const data = await resp.json();
     return data.id || null;
@@ -350,25 +431,26 @@ async function updateTaskRecord(taskId, patch) {
 /** Main task runner — processes all keywords sequentially. */
 async function runTask(keywords, maxNotes, dateFilter = 0) {
   stopRequested = false;
+  nextBreakAt = Math.floor(rand(BREAK_EVERY_MIN, BREAK_EVERY_MAX)); // reset break counter
   chrome.storage.local.set({ taskRunning: true });
 
   const tab = await chrome.tabs.create({ url: 'about:blank', active: false });
   const tabId = tab.id;
   let totalDone = 0;
 
-  // Register task in backend
-  const taskId = await createTaskRecord(keywords, keywords.length * maxNotes);
+  const taskId = await createTaskRecord(keywords, keywords.length * maxNotes, dateFilter);
 
   try {
-    for (const keyword of keywords) {
+    for (let kwIdx = 0; kwIdx < keywords.length; kwIdx++) {
       if (stopRequested) break;
-      sendProgress(`开始处理关键词「${keyword}」...`);
+      const keyword = keywords[kwIdx];
+      sendProgress(`开始处理关键词「${keyword}」…`);
 
-      const collected = await processKeyword(tabId, keyword, maxNotes, dateFilter);
+      const collected = await processKeyword(tabId, keyword, maxNotes, dateFilter, totalDone);
 
       if (collected.length > 0) {
         try {
-          await pushNotes(collected);
+          await pushNotes(collected, taskId);
           totalDone += collected.length;
           await updateTaskRecord(taskId, { done: totalDone });
           sendProgress(`关键词「${keyword}」完成，共 ${collected.length} 篇`);
@@ -378,6 +460,14 @@ async function runTask(keywords, maxNotes, dateFilter = 0) {
         }
       } else {
         sendProgress(`关键词「${keyword}」未抓取到数据`);
+      }
+
+      // Inter-keyword break (skip after last keyword)
+      if (kwIdx < keywords.length - 1 && !stopRequested) {
+        const kwBreak = rand(45000, 100000); // 45–100s between keywords
+        console.log(`[XHS] Inter-keyword break ${Math.round(kwBreak / 1000)}s`);
+        sendProgress(`关键词切换中，休息 ${Math.round(kwBreak / 1000)}s…`);
+        await sleep(kwBreak);
       }
     }
   } finally {
