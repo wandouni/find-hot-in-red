@@ -1,4 +1,5 @@
 // Service worker — handles task queue and tab orchestration
+// Token interception is handled by interceptor.js (document_start, MAIN world)
 importScripts('config.js');
 
 let stopRequested = false;
@@ -47,119 +48,34 @@ function waitForLoad(tabId, timeout = 15000) {
 }
 
 /**
- * Inject a fetch/XHR interceptor into the page's MAIN world.
- * XHS stores xsec_token inside its search-result API responses.
- * We capture every response and extract { noteId → fullUrl } pairs,
- * storing them in window.__xhsLinks so background.js can read them.
- *
- * Must run in world:'MAIN' to access the page's real fetch/XHR.
- */
-async function injectTokenInterceptor(tabId) {
-  // Guard: don't inject into about:blank or other non-XHS pages
-  try {
-    const tab = await chrome.tabs.get(tabId);
-    if (!tab.url || !tab.url.includes('xiaohongshu.com')) {
-      console.warn('[XHS] Skipping interceptor injection, tab URL:', tab.url);
-      return;
-    }
-  } catch {
-    return;
-  }
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    world: 'MAIN',
-    func: () => {
-      if (window.__xhsIntercepted) return;
-      window.__xhsIntercepted = true;
-      window.__xhsLinks = window.__xhsLinks || {};
-
-      function extractTokens(data) {
-        try {
-          // Log top-level keys to understand XHS API response structure
-          const topKeys = Object.keys(data || {});
-          console.log('[XHS-intercept] response keys:', JSON.stringify(topKeys));
-
-          // XHS search API wraps items in data.items or data.data.items
-          const items = data?.data?.items ?? data?.items ?? [];
-          if (!Array.isArray(items)) {
-            console.log('[XHS-intercept] items not array, data.data:', JSON.stringify(data?.data)?.slice(0, 200));
-            return;
-          }
-          console.log('[XHS-intercept] found', items.length, 'items');
-          items.forEach((item, i) => {
-            // Log first item structure to diagnose token field location
-            if (i === 0) {
-              console.log('[XHS-intercept] item[0] keys:', JSON.stringify(Object.keys(item || {})));
-              console.log('[XHS-intercept] item[0] sample:', JSON.stringify(item)?.slice(0, 300));
-            }
-            // Token may be at top level or inside note_card
-            const id = item?.id || item?.note_id;
-            const token = item?.xsec_token ?? item?.note_card?.xsec_token;
-            if (id && token) {
-              window.__xhsLinks[id] =
-                `https://www.xiaohongshu.com/explore/${id}` +
-                `?xsec_token=${encodeURIComponent(token)}&xsec_source=pc_search`;
-              console.log('[XHS-intercept] captured', id, 'token=', token.slice(0, 10) + '...');
-            } else {
-              if (id) console.log('[XHS-intercept] id', id, 'but no token, item.xsec_token=', item?.xsec_token);
-            }
-          });
-        } catch (e) {
-          console.log('[XHS-intercept] extractTokens error:', e.message);
-        }
-      }
-
-      // Wrap fetch
-      const origFetch = window.fetch;
-      window.fetch = async function(...args) {
-        const resp = await origFetch.apply(this, args);
-        resp.clone().json().then(extractTokens).catch(() => {});
-        return resp;
-      };
-
-      // Wrap XHR
-      const origOpen = XMLHttpRequest.prototype.open;
-      XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-        this.__url = url;
-        return origOpen.call(this, method, url, ...rest);
-      };
-      const origSend = XMLHttpRequest.prototype.send;
-      XMLHttpRequest.prototype.send = function(...args) {
-        this.addEventListener('load', () => {
-          try { extractTokens(JSON.parse(this.responseText)); } catch {}
-        });
-        return origSend.apply(this, args);
-      };
-    },
-  });
-}
-
-/**
- * Read the captured note links from window.__xhsLinks (injected above).
- * Returns an array of { id, url } objects.
+ * Read note links captured by interceptor.js (window.__xhsLinks).
+ * interceptor.js runs in MAIN world at document_start and wraps
+ * window.fetch/XHR to extract xsec_token from XHS API responses.
+ * We must also use world:'MAIN' here to read from the same window object.
  */
 async function getCapturedLinks(tabId) {
-  const results = await chrome.scripting.executeScript({
-    target: { tabId },
-    world: 'MAIN',
-    func: () => {
-      const links = window.__xhsLinks || {};
-      return Object.entries(links).map(([id, url]) => ({ id, url }));
-    },
-  });
-  return results[0]?.result || [];
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: () => {
+        const links = window.__xhsLinks || {};
+        return Object.entries(links).map(([id, url]) => ({ id, url }));
+      },
+    });
+    return results[0]?.result || [];
+  } catch {
+    return [];
+  }
 }
 
-/**
- * Scroll to the bottom of the page to trigger XHS lazy-loading more results.
- * XHS fires API calls on scroll, which our interceptor captures.
- */
+/** Scroll down to trigger XHS lazy-loading and new API calls. */
 async function scrollAndWait(tabId) {
   await chrome.scripting.executeScript({
     target: { tabId },
     func: () => window.scrollBy({ top: 800, behavior: 'smooth' }),
-  });
-  await sleep(2500); // wait for XHS API response and render
+  }).catch(() => {});
+  await sleep(2500);
 }
 
 /**
@@ -259,9 +175,7 @@ async function scrapeCurrentPage(tabId, keyword, noteId) {
   return results[0]?.result || null;
 }
 
-/**
- * POST a batch of notes to the backend.
- */
+/** POST a batch of notes to the backend. */
 async function pushNotes(notes) {
   const resp = await fetch(`${CONFIG.BACKEND_URL}/api/notes`, {
     method: 'POST',
@@ -275,10 +189,9 @@ async function pushNotes(notes) {
 /**
  * Process one keyword.
  *
- * Strategy: inject a fetch interceptor into the search page's MAIN world.
- * XHS's search API returns xsec_token per note in its JSON response.
- * We capture those tokens and navigate directly to the full URL — no
- * clicking required, no isTrusted concerns.
+ * interceptor.js (document_start, MAIN world) has already wrapped fetch/XHR
+ * on this tab and is populating window.__xhsLinks with token URLs as XHS
+ * makes its search API calls. We poll that map, then navigate directly.
  */
 async function processKeyword(tabId, keyword, maxNotes) {
   const searchUrl =
@@ -286,10 +199,7 @@ async function processKeyword(tabId, keyword, maxNotes) {
 
   await chrome.tabs.update(tabId, { url: searchUrl });
   await waitForLoad(tabId);
-  await sleep(3000); // wait for initial render + first API call
-
-  // Inject the token interceptor into the page's JS context
-  await injectTokenInterceptor(tabId);
+  await sleep(3000); // wait for XHS initial API call to complete
 
   const collected = [];
   const seenIds = new Set();
@@ -299,15 +209,14 @@ async function processKeyword(tabId, keyword, maxNotes) {
   while (collected.length < maxNotes) {
     if (stopRequested) break;
 
-    // Read URLs that the interceptor has captured so far
     const links = await getCapturedLinks(tabId);
-    console.log(`[XHS] Total captured links: ${links.length}, seenIds: ${seenIds.size}`);
+    console.log(`[XHS] Captured=${links.length} seen=${seenIds.size}`);
     const newLinks = links.filter(l => !seenIds.has(l.id));
 
     if (newLinks.length === 0) {
       noNewRounds++;
       if (noNewRounds >= MAX_NO_NEW) {
-        console.log('[XHS] No new links after scrolling, done.');
+        console.log('[XHS] No new links after scrolling, stopping.');
         break;
       }
       await scrollAndWait(tabId);
@@ -321,16 +230,15 @@ async function processKeyword(tabId, keyword, maxNotes) {
       seenIds.add(noteId);
 
       sendProgress(`关键词「${keyword}」: 正在抓取 ${collected.length + 1}/${maxNotes}...`);
-      console.log(`[XHS] Navigating to: ${noteUrl}`);
+      console.log(`[XHS] → ${noteUrl.slice(0, 100)}`);
 
       try {
-        // Navigate directly using the full URL (with xsec_token from interceptor)
         await chrome.tabs.update(tabId, { url: noteUrl });
         await waitForLoad(tabId);
-        await sleep(2500); // wait for SPA render
+        await sleep(2500);
 
         const tab = await chrome.tabs.get(tabId);
-        console.log(`[XHS] Landed on: ${tab.url}`);
+        console.log(`[XHS] Landed: ${tab.url?.slice(0, 100)}`);
 
         if (tab.url && tab.url.includes('/explore/')) {
           const note = await scrapeCurrentPage(tabId, keyword, noteId);
@@ -338,24 +246,22 @@ async function processKeyword(tabId, keyword, maxNotes) {
             collected.push(note);
             console.log(`[XHS] OK: "${note.title}" likes=${note.likes}`);
           } else {
-            console.warn('[XHS] Scrape null for:', noteId);
+            console.warn('[XHS] Scrape null:', noteId);
           }
         } else {
           console.warn('[XHS] Not on note page:', tab.url);
         }
 
-        // Return to search page (re-inject interceptor since page reloaded)
+        // Return to search page — interceptor.js auto-re-injects on new page load
         await chrome.tabs.update(tabId, { url: searchUrl });
         await waitForLoad(tabId);
         await sleep(2000);
-        await injectTokenInterceptor(tabId); // re-inject after reload
 
       } catch (e) {
         console.warn('[XHS] Error on note', noteId, ':', e.message);
         await chrome.tabs.update(tabId, { url: searchUrl }).catch(() => {});
         await waitForLoad(tabId);
         await sleep(3000);
-        await injectTokenInterceptor(tabId);
       }
 
       await randomDelay();
@@ -365,22 +271,18 @@ async function processKeyword(tabId, keyword, maxNotes) {
   return collected;
 }
 
-/**
- * Main task runner — processes all keywords sequentially.
- */
+/** Main task runner — processes all keywords sequentially. */
 async function runTask(keywords, maxNotes) {
   stopRequested = false;
   chrome.storage.local.set({ taskRunning: true });
 
   const tab = await chrome.tabs.create({ url: 'about:blank', active: false });
   const tabId = tab.id;
-
   let totalDone = 0;
 
   try {
     for (const keyword of keywords) {
       if (stopRequested) break;
-
       sendProgress(`开始处理关键词「${keyword}」...`);
 
       const collected = await processKeyword(tabId, keyword, maxNotes);
@@ -391,7 +293,7 @@ async function runTask(keywords, maxNotes) {
           totalDone += collected.length;
           sendProgress(`关键词「${keyword}」完成，共 ${collected.length} 篇`);
         } catch (e) {
-          console.error('Backend push failed:', e);
+          console.error('[XHS] Backend push failed:', e);
           sendProgress(`关键词「${keyword}」推送后端失败: ${e.message}`);
         }
       } else {
@@ -404,12 +306,7 @@ async function runTask(keywords, maxNotes) {
   }
 }
 
-// Message handler
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === 'START_TASK') {
-    runTask(msg.keywords, msg.maxNotes);
-  }
-  if (msg.type === 'STOP_TASK') {
-    stopRequested = true;
-  }
+  if (msg.type === 'START_TASK') runTask(msg.keywords, msg.maxNotes);
+  if (msg.type === 'STOP_TASK') stopRequested = true;
 });
