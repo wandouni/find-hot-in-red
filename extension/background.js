@@ -150,14 +150,22 @@ async function clickNoteLink(tabId, noteId) {
     });
     await sleep(350); // give XHS time to react to hover (token prep)
 
-    // 2. Press + release = real click with isTrusted:true
+    // 2. Press — this triggers XHS navigation; the tab may start navigating immediately
     await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
       type: 'mousePressed', x: pos.x, y: pos.y,
       button: 'left', clickCount: 1, modifiers: 0,
     });
+
+    // 3. Release — may throw "Detached while handling command" if the page
+    //    already started navigating from mousePressed. That is EXPECTED and
+    //    means the click worked. Suppress only Detached errors here.
     await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
       type: 'mouseReleased', x: pos.x, y: pos.y,
       button: 'left', clickCount: 1, modifiers: 0,
+    }).catch(e => {
+      if (!e?.message?.includes('Detached')) throw e;
+      // "Detached" = page navigated away from mousePressed — click succeeded
+      console.log('[XHS] mouseReleased detached (navigation in progress) — expected');
     });
   } finally {
     // Detach immediately — minimises the "DevTools is debugging" banner duration
@@ -280,29 +288,44 @@ async function pushNotes(notes) {
 }
 
 /**
- * Process one keyword: click-navigate into each note, scrape, go back.
- * This approach lets XHS JS inject the xsec_token before navigation
- * (which does not happen when navigating by URL directly).
+ * Process one keyword: scroll each note card into view, click it with the
+ * debugger (isTrusted events), wait for navigation, scrape, go back.
  */
 async function processKeyword(tabId, keyword, maxNotes) {
   const searchUrl = `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(keyword)}&type=51`;
 
-  // Navigate to search page
   await chrome.tabs.update(tabId, { url: searchUrl });
   await waitForLoad(tabId);
-  await sleep(3000); // wait for dynamic content
+  await sleep(3000); // let dynamic content render
 
   const collected = [];
   const seenIds = new Set();
-  let scrollRound = 0;
-  const maxScrollRounds = Math.ceil(maxNotes / 5) + 2;
+  let noNewRounds = 0;
+  const MAX_NO_NEW = 5;
 
-  while (collected.length < maxNotes && scrollRound < maxScrollRounds) {
+  while (collected.length < maxNotes) {
     if (stopRequested) break;
 
-    // Get note IDs currently visible on search results page
-    const ids = await getNoteIds(tabId);
-    const newIds = ids.filter(id => !seenIds.has(id));
+    // Collect every note ID currently in the DOM
+    const allIds = await getNoteIds(tabId);
+    const newIds = allIds.filter(id => !seenIds.has(id));
+
+    if (newIds.length === 0) {
+      noNewRounds++;
+      if (noNewRounds >= MAX_NO_NEW) {
+        console.log('[XHS] No new notes found after scrolling, stopping.');
+        break;
+      }
+      // Scroll to load more
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => window.scrollBy({ top: 800, behavior: 'smooth' }),
+      });
+      await sleep(2500);
+      continue;
+    }
+
+    noNewRounds = 0;
 
     for (const noteId of newIds) {
       if (stopRequested || collected.length >= maxNotes) break;
@@ -311,71 +334,74 @@ async function processKeyword(tabId, keyword, maxNotes) {
       sendProgress(`关键词「${keyword}」: 正在抓取 ${collected.length + 1}/${maxNotes}...`);
 
       try {
-        // Start waiting BEFORE clicking to avoid race condition where
-        // the tab load event fires before we add the listener.
+        // Scroll the card into view so coordinates land inside the viewport
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          func: (id) => {
+            const links = Array.from(document.querySelectorAll('a[href*="/explore/"]'))
+              .filter(a => (a.getAttribute('href') || '').includes(id));
+            if (links[0]) links[0].scrollIntoView({ block: 'center', behavior: 'instant' });
+          },
+          args: [noteId],
+        });
+        await sleep(400); // wait for layout to settle after scroll
+
+        // Register load listener BEFORE click to avoid missing the event
         const loadPromise = waitForLoad(tabId);
 
-        // Click the link — XHS JS will inject xsec_token and navigate
         const clicked = await clickNoteLink(tabId, noteId);
         if (!clicked) {
           console.warn('[XHS] Link not found for note:', noteId);
           continue;
         }
 
-        // Wait for navigation: prefer URL-based confirmation, fall back to load event
+        // Wait for the tab to navigate to the note page
         const navigated = await waitForNavigation(tabId, noteId);
         if (!navigated) {
-          // loadPromise timeout already resolved; try a fixed wait as last resort
+          // Fall back: wait for generic load completion
           await loadPromise;
+          await sleep(1000);
+        } else {
+          await sleep(2500); // let SPA render content after URL change
         }
-        await sleep(2500); // wait for SPA async rendering after URL change
 
-        // Verify we actually landed on the expected note page
         const tab = await chrome.tabs.get(tabId);
         console.log(`[XHS] Note tab URL: ${tab.url}`);
-        if (tab.url && tab.url.includes('/404')) {
-          console.warn('[XHS] Got 404 for note:', noteId, tab.url);
-          // Fall through — scrape will return null and we'll skip
-        }
 
-        // Scrape
-        const note = await scrapeCurrentPage(tabId, keyword, noteId);
-        if (note) {
-          collected.push(note);
-          console.log(`[XHS] Scraped note ${noteId}: "${note.title}"`);
+        if (tab.url && tab.url.includes('/explore/')) {
+          const note = await scrapeCurrentPage(tabId, keyword, noteId);
+          if (note) {
+            collected.push(note);
+            console.log(`[XHS] Scraped note ${noteId}: "${note.title}"`);
+          } else {
+            console.warn('[XHS] Scrape returned null for:', noteId);
+          }
         } else {
-          console.warn('[XHS] Scrape returned null for:', noteId, 'URL:', tab.url);
+          console.warn('[XHS] Not on note page after navigation, URL:', tab.url);
         }
 
-        // Navigate back to search results
+        // Go back to search results
         await chrome.scripting.executeScript({
           target: { tabId },
           func: () => window.history.back(),
         });
-        // Wait for search results to be restored
         await waitForLoad(tabId);
         await sleep(2000);
 
       } catch (e) {
-        console.warn('Error scraping note', noteId, e);
-        // Try to get back to search results if something went wrong
-        try {
-          await chrome.tabs.update(tabId, { url: searchUrl });
+        console.warn('[XHS] Error on note', noteId, ':', e.message);
+        // Navigate back to search page only for unexpected errors,
+        // not for expected debugger detach on successful navigation
+        const isDetach = e.message?.includes('Detached') || e.message?.includes('detach');
+        if (!isDetach) {
+          await chrome.tabs.update(tabId, { url: searchUrl }).catch(() => {});
           await waitForLoad(tabId);
           await sleep(3000);
-        } catch {}
+        }
       }
 
       await randomDelay();
     }
-
-    // Scroll down to reveal more results
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => window.scrollBy({ top: 800, behavior: 'smooth' }),
-    });
-    scrollRound++;
-    await sleep(2000);
   }
 
   return collected;
