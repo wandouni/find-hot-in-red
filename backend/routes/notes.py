@@ -14,7 +14,7 @@ from schemas import NoteOut, NoteDetail, CommentOut
 
 router = APIRouter()
 
-DATE_FILTER_LABEL = {0: "不限", 1: "1天内", 2: "2天内", 7: "1周内"}
+DATE_FILTER_LABEL = {0: "不限", 1: "1天内", 7: "1周内", 180: "半年内"}
 
 
 def _scheme_filename(task: Task | None, ext: str) -> str:

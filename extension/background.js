@@ -98,8 +98,158 @@ function waitForLoad(tabId, timeout = 18000) {
   });
 }
 
+// Maps our dateFilter value to the exact button text on XHS search page
+const XHS_DATE_BUTTON = {
+  1:   '一天内',
+  7:   '一周内',
+  180: '半年内',
+};
+
+/**
+ * Apply XHS's own date filter + "最新" sort by clicking the UI buttons.
+ *
+ * XHS search page shows a filter panel on the right with sections:
+ *   排序依据 | 笔记类型 | 发布时间 | 筛选范围
+ *
+ * We:
+ *  1. Click "选项" (or similar) to open the filter panel if needed
+ *  2. Click "最新" sort inside 排序依据
+ *  3. Clear window.__xhsLinks (purge pre-filter captures)
+ *  4. Find the 发布时间 section and click the matching option
+ *  5. Wait for XHS to re-fire the filtered API calls
+ */
+async function applyXHSDateFilter(tabId, dateFilter) {
+  const buttonText = XHS_DATE_BUTTON[dateFilter];
+  if (!buttonText) return;
+
+  // Diagnostic: log all short visible texts so we can see what XHS renders
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const texts = new Set();
+      for (const el of document.querySelectorAll('span, button, a, li')) {
+        const t = el.textContent.trim();
+        if (t.length > 0 && t.length < 15 && el.offsetParent !== null) texts.add(t);
+      }
+      console.log('[XHS-filter-debug] visible short texts:', [...texts].join(' | '));
+    },
+  }).catch(() => {});
+
+  // ── Step 1: open the filter panel ────────────────────────────────
+  // XHS shows a "选项" button (or "筛选") that reveals the filter sidebar.
+  // Try several possible trigger texts/attributes.
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const triggers = ['选项', '筛选', 'Options', 'Filter'];
+      for (const text of triggers) {
+        for (const el of document.querySelectorAll('button, span, div, a')) {
+          if (el.textContent.trim() === text && el.offsetParent !== null) {
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            return `clicked: "${text}"`;
+          }
+        }
+      }
+      // Also try aria-label
+      const byAria = document.querySelector('[aria-label="筛选"], [aria-label="选项"]');
+      if (byAria) { byAria.click(); return 'clicked aria'; }
+      return 'no trigger';
+    },
+  }).catch(() => {});
+  await sleep(rand(800, 1400));
+
+  // ── Step 2: click "最新" inside the sort section ──────────────────
+  const sortResult = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      // Look for the sort section (排序依据) and click 最新 within it
+      const allEls = [...document.querySelectorAll('span, div, button, a, li')];
+      // First try: element whose full text is exactly 最新
+      const exact = allEls.filter(el =>
+        el.textContent.trim() === '最新' && el.offsetParent !== null
+      );
+      if (exact.length > 0) {
+        // Prefer smaller elements (avoid clicking a container)
+        exact.sort((a, b) =>
+          (a.offsetWidth * a.offsetHeight) - (b.offsetWidth * b.offsetHeight)
+        );
+        exact[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        return `最新 clicked (${exact[0].tagName})`;
+      }
+      return '最新 not found';
+    },
+  }).catch(() => []);
+  console.log(`[XHS] ${sortResult?.[0]?.result}`);
+  await sleep(rand(700, 1300));
+
+  // ── Step 3: click the date option inside "发布时间" section ─────────
+  // NOTE: Do NOT clear __xhsLinks here. Clearing before the filter click
+  // means if the click fails (panel not open for kw2+), no API calls happen
+  // and __xhsLinks stays empty → collected=0. The clear happens correctly
+  // after returning from each note page (in processKeyword).
+  const dateResult = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (targetText) => {
+      const allEls = [...document.querySelectorAll('span, div, button, a, li, section')];
+
+      // Strategy A: find 发布时间 container, click option within it
+      const dateSection = allEls.find(el =>
+        el.textContent.includes('发布时间') &&
+        el.offsetParent !== null &&
+        el.offsetWidth < 600 // not the entire page
+      );
+      if (dateSection) {
+        const opts = [...dateSection.querySelectorAll('span, div, button, a, li')].filter(el =>
+          el.textContent.trim() === targetText && el.offsetParent !== null
+        );
+        if (opts.length > 0) {
+          opts[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          return `A: clicked in 发布时间 section (${opts[0].tagName}.${opts[0].className})`;
+        }
+      }
+
+      // Strategy B: full-page search, pick smallest visible element matching text
+      const matches = allEls.filter(el =>
+        el.textContent.trim() === targetText && el.offsetParent !== null
+      );
+      if (matches.length === 0) return `not found: "${targetText}"`;
+      matches.sort((a, b) =>
+        (a.offsetWidth * a.offsetHeight) - (b.offsetWidth * b.offsetHeight)
+      );
+      matches[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      return `B: clicked globally (${matches[0].tagName}.${matches[0].className})`;
+    },
+    args: [buttonText],
+  }).catch(() => []);
+  console.log(`[XHS] Date filter "${buttonText}": ${dateResult?.[0]?.result}`);
+
+  // If date option not found on first try, the panel may not have opened yet.
+  // Wait and retry once.
+  if (!dateResult?.[0]?.result?.startsWith('A') && !dateResult?.[0]?.result?.startsWith('B')) {
+    await sleep(2000);
+    const retry = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (targetText) => {
+        const matches = [...document.querySelectorAll('span, div, button, a, li')].filter(el =>
+          el.textContent.trim() === targetText && el.offsetParent !== null
+        );
+        if (matches.length === 0) return 'retry: not found';
+        matches.sort((a, b) => (a.offsetWidth * a.offsetHeight) - (b.offsetWidth * b.offsetHeight));
+        matches[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        return `retry: clicked (${matches[0].tagName})`;
+      },
+      args: [buttonText],
+    }).catch(() => []);
+    console.log(`[XHS] Date filter retry: ${retry?.[0]?.result}`);
+  }
+
+  // ── Step 5: wait for XHS to reload with filter applied ────────────
+  await sleep(rand(3500, 5500));
+}
+
 /**
  * Read note links captured by interceptor.js (window.__xhsLinks).
+ * Returns [{id, url, time}] where time is Unix ms (0 = unknown).
  */
 async function getCapturedLinks(tabId) {
   try {
@@ -108,13 +258,29 @@ async function getCapturedLinks(tabId) {
       world: 'MAIN',
       func: () => {
         const links = window.__xhsLinks || {};
-        return Object.entries(links).map(([id, url]) => ({ id, url }));
+        return Object.entries(links).map(([id, val]) => ({
+          id,
+          // Support old string format for safety
+          url:  typeof val === 'string' ? val : val.url,
+          time: typeof val === 'string' ? 0   : (val.time || 0),
+        }));
       },
     });
     return results[0]?.result || [];
   } catch {
     return [];
   }
+}
+
+/**
+ * Pre-filter a captured link by its API timestamp before visiting.
+ * Returns true if the note is within the date range (should be visited).
+ * If time is 0 (unknown), we let it through and rely on the post-visit filter.
+ */
+function passesTimePreFilter(timeMs, dateFilter) {
+  if (!dateFilter || !timeMs) return true; // no filter or unknown time
+  const cutoff = Date.now() - dateFilter * 24 * 60 * 60 * 1000;
+  return timeMs >= cutoff;
 }
 
 /**
@@ -204,11 +370,21 @@ async function scrapeCurrentPage(tabId, keyword, noteId) {
         document.querySelector('[class*="collect"] .count')
       );
 
-      const dateEl =
-        document.querySelector('.note-content .date') ||
-        document.querySelector('time') ||
-        document.querySelector('[class*="date"]');
-      const publishDate = dateEl?.textContent?.trim() || '';
+      // Collect candidate date strings; validate they look like XHS date formats
+      // before accepting. Avoids picking up geo labels or other garbage text.
+      const DATE_RE = /^(刚刚|\d+\s*分钟前|\d+\s*小时前|昨天|\d+\s*天前|\d{1,2}-\d{2}|\d{4}-\d{2}-\d{2})$/;
+      let publishDate = '';
+      const dateCandidates = [
+        document.querySelector('.note-content .date'),
+        document.querySelector('time'),
+        // Only use class*=date fallback if the extracted text is a real date string
+        ...[...document.querySelectorAll('[class*="date"]')],
+      ];
+      for (const el of dateCandidates) {
+        if (!el) continue;
+        const t = el.textContent?.trim() || '';
+        if (DATE_RE.test(t)) { publishDate = t; break; }
+      }
 
       const commentEls = document.querySelectorAll('.comment-item, .comments-el');
       const comments = [];
@@ -305,12 +481,20 @@ async function pushNotes(notes, taskId) {
  * Per-keyword total for 20 notes ≈ 5–15 minutes.
  */
 async function processKeyword(tabId, keyword, maxNotes, dateFilter = 0, totalDoneSoFar = 0) {
+  // When date-filtering, add sort=time_descending so XHS returns newest first
+  const sortQs = dateFilter > 0 ? '&sort=time_descending' : '';
   const searchUrl =
-    `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(keyword)}&type=51`;
+    `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(keyword)}&type=51${sortQs}`;
 
   await chrome.tabs.update(tabId, { url: searchUrl });
   await waitForLoad(tabId);
-  await settleDelay(3000, 6000); // longer settle — let XHS fire its initial API calls
+  await settleDelay(3000, 6000); // let XHS fire its initial search API call
+
+  // Click XHS's own date filter so only qualifying notes reach interceptor.js
+  if (dateFilter > 0) {
+    sendProgress(`关键词「${keyword}」: 正在设置日期筛选…`);
+    await applyXHSDateFilter(tabId, dateFilter);
+  }
 
   const collected = [];
   const seenIds = new Set();
@@ -337,9 +521,16 @@ async function processKeyword(tabId, keyword, maxNotes, dateFilter = 0, totalDon
 
     noNewRounds = 0;
 
-    for (const { id: noteId, url: noteUrl } of newLinks) {
+    for (const { id: noteId, url: noteUrl, time: noteTime } of newLinks) {
       if (stopRequested || collected.length >= maxNotes) break;
       seenIds.add(noteId);
+
+      // Pre-filter by API timestamp — avoids visiting notes that are already too old
+      if (!passesTimePreFilter(noteTime, dateFilter)) {
+        const d = noteTime ? new Date(noteTime).toISOString().slice(0, 10) : '?';
+        console.log(`[XHS] Pre-skip (API time ${d} > ${dateFilter}d cutoff): ${noteId}`);
+        continue;
+      }
 
       // 8% chance: skip this note (simulate user glancing past it)
       if (Math.random() < 0.08) {
@@ -369,27 +560,42 @@ async function processKeyword(tabId, keyword, maxNotes, dateFilter = 0, totalDon
           const note = await scrapeCurrentPage(tabId, keyword, noteId);
           if (!note) {
             console.warn('[XHS] Scrape null:', noteId);
-          } else if (dateFilter > 0 && parseDaysAgo(note.publish_date) > dateFilter) {
-            console.log(`[XHS] Skip date (>${dateFilter}d): "${note.publish_date}"`);
           } else {
-            collected.push(note);
-            notesThisKeyword++;
-            console.log(`[XHS] OK: "${note.title}" likes=${note.likes}`);
+            const daysAgo = parseDaysAgo(note.publish_date);
+            if (dateFilter > 0 && Number.isFinite(daysAgo) && daysAgo > dateFilter) {
+              console.log(`[XHS] Skip date (${daysAgo.toFixed(1)}d > ${dateFilter}d): "${note.publish_date}"`);
+            } else {
+              collected.push(note);
+              notesThisKeyword++;
+              console.log(`[XHS] OK: "${note.title}" likes=${note.likes}`);
+            }
           }
         } else {
           console.warn('[XHS] Not on note page:', tab.url);
         }
 
-        // Return to search page
+        // Return to search page; clear stale links so each round starts fresh
         await chrome.tabs.update(tabId, { url: searchUrl });
         await waitForLoad(tabId);
+        if (dateFilter > 0) {
+          await chrome.scripting.executeScript({
+            target: { tabId }, world: 'MAIN',
+            func: () => { window.__xhsLinks = {}; },
+          }).catch(() => {});
+        }
         await settleDelay(1500, 4500);
 
       } catch (e) {
         console.warn('[XHS] Error on note', noteId, ':', e.message);
         await chrome.tabs.update(tabId, { url: searchUrl }).catch(() => {});
         await waitForLoad(tabId);
-        await settleDelay(3000, 7000); // longer recovery after error
+        if (dateFilter > 0) {
+          await chrome.scripting.executeScript({
+            target: { tabId }, world: 'MAIN',
+            func: () => { window.__xhsLinks = {}; },
+          }).catch(() => {});
+        }
+        await settleDelay(3000, 7000);
       }
 
       // Main between-note browsing delay

@@ -34,10 +34,10 @@ export interface NotesResponse {
 }
 
 export const DATE_FILTER_LABEL: Record<number, string> = {
-  0: '不限',
-  1: '1天内',
-  2: '2天内',
-  7: '1周内',
+  0:   '不限',
+  1:   '1天内',
+  7:   '1周内',
+  180: '半年内',
 };
 
 export interface Task {
