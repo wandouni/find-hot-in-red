@@ -55,6 +55,16 @@ function waitForLoad(tabId, timeout = 15000) {
  * Must run in world:'MAIN' to access the page's real fetch/XHR.
  */
 async function injectTokenInterceptor(tabId) {
+  // Guard: don't inject into about:blank or other non-XHS pages
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab.url || !tab.url.includes('xiaohongshu.com')) {
+      console.warn('[XHS] Skipping interceptor injection, tab URL:', tab.url);
+      return;
+    }
+  } catch {
+    return;
+  }
   await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
@@ -65,10 +75,23 @@ async function injectTokenInterceptor(tabId) {
 
       function extractTokens(data) {
         try {
+          // Log top-level keys to understand XHS API response structure
+          const topKeys = Object.keys(data || {});
+          console.log('[XHS-intercept] response keys:', JSON.stringify(topKeys));
+
           // XHS search API wraps items in data.items or data.data.items
           const items = data?.data?.items ?? data?.items ?? [];
-          if (!Array.isArray(items)) return;
-          items.forEach(item => {
+          if (!Array.isArray(items)) {
+            console.log('[XHS-intercept] items not array, data.data:', JSON.stringify(data?.data)?.slice(0, 200));
+            return;
+          }
+          console.log('[XHS-intercept] found', items.length, 'items');
+          items.forEach((item, i) => {
+            // Log first item structure to diagnose token field location
+            if (i === 0) {
+              console.log('[XHS-intercept] item[0] keys:', JSON.stringify(Object.keys(item || {})));
+              console.log('[XHS-intercept] item[0] sample:', JSON.stringify(item)?.slice(0, 300));
+            }
             // Token may be at top level or inside note_card
             const id = item?.id || item?.note_id;
             const token = item?.xsec_token ?? item?.note_card?.xsec_token;
@@ -76,9 +99,14 @@ async function injectTokenInterceptor(tabId) {
               window.__xhsLinks[id] =
                 `https://www.xiaohongshu.com/explore/${id}` +
                 `?xsec_token=${encodeURIComponent(token)}&xsec_source=pc_search`;
+              console.log('[XHS-intercept] captured', id, 'token=', token.slice(0, 10) + '...');
+            } else {
+              if (id) console.log('[XHS-intercept] id', id, 'but no token, item.xsec_token=', item?.xsec_token);
             }
           });
-        } catch {}
+        } catch (e) {
+          console.log('[XHS-intercept] extractTokens error:', e.message);
+        }
       }
 
       // Wrap fetch
@@ -273,6 +301,7 @@ async function processKeyword(tabId, keyword, maxNotes) {
 
     // Read URLs that the interceptor has captured so far
     const links = await getCapturedLinks(tabId);
+    console.log(`[XHS] Total captured links: ${links.length}, seenIds: ${seenIds.size}`);
     const newLinks = links.filter(l => !seenIds.has(l.id));
 
     if (newLinks.length === 0) {
