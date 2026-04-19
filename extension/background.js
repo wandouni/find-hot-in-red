@@ -175,6 +175,49 @@ async function scrapeCurrentPage(tabId, keyword, noteId) {
   return results[0]?.result || null;
 }
 
+/**
+ * Parse XHS publish_date strings into "days ago" (float).
+ * XHS uses many formats: 刚刚 / N分钟前 / N小时前 / 昨天 / N天前 / MM-DD / YYYY-MM-DD
+ * Returns Infinity for unparseable strings so they are treated as "too old".
+ */
+function parseDaysAgo(publishDate) {
+  if (!publishDate) return Infinity;
+  const s = publishDate.trim();
+  const now = new Date();
+
+  if (s === '刚刚') return 0;
+
+  let m;
+  m = s.match(/^(\d+)\s*分钟前$/);
+  if (m) return parseInt(m[1]) / (60 * 24);
+
+  m = s.match(/^(\d+)\s*小时前$/);
+  if (m) return parseInt(m[1]) / 24;
+
+  if (s === '昨天') return 1;
+
+  m = s.match(/^(\d+)\s*天前$/);
+  if (m) return parseInt(m[1]);
+
+  // MM-DD (current year assumed)
+  m = s.match(/^(\d{1,2})-(\d{2})$/);
+  if (m) {
+    const d = new Date(now.getFullYear(), parseInt(m[1]) - 1, parseInt(m[2]));
+    // If the resulting date is in the future, it's last year
+    if (d > now) d.setFullYear(d.getFullYear() - 1);
+    return (now - d) / 86400000;
+  }
+
+  // YYYY-MM-DD
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) {
+    const d = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+    return (now - d) / 86400000;
+  }
+
+  return Infinity;
+}
+
 /** POST a batch of notes to the backend. */
 async function pushNotes(notes) {
   const resp = await fetch(`${CONFIG.BACKEND_URL}/api/notes`, {
@@ -193,7 +236,7 @@ async function pushNotes(notes) {
  * on this tab and is populating window.__xhsLinks with token URLs as XHS
  * makes its search API calls. We poll that map, then navigate directly.
  */
-async function processKeyword(tabId, keyword, maxNotes) {
+async function processKeyword(tabId, keyword, maxNotes, dateFilter = 0) {
   const searchUrl =
     `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(keyword)}&type=51`;
 
@@ -242,11 +285,19 @@ async function processKeyword(tabId, keyword, maxNotes) {
 
         if (tab.url && tab.url.includes('/explore/')) {
           const note = await scrapeCurrentPage(tabId, keyword, noteId);
-          if (note) {
+          if (!note) {
+            console.warn('[XHS] Scrape null:', noteId);
+          } else if (dateFilter > 0) {
+            const daysAgo = parseDaysAgo(note.publish_date);
+            if (daysAgo > dateFilter) {
+              console.log(`[XHS] Skip (>${dateFilter}d): "${note.publish_date}" = ${daysAgo.toFixed(1)}d ago`);
+            } else {
+              collected.push(note);
+              console.log(`[XHS] OK: "${note.title}" likes=${note.likes}`);
+            }
+          } else {
             collected.push(note);
             console.log(`[XHS] OK: "${note.title}" likes=${note.likes}`);
-          } else {
-            console.warn('[XHS] Scrape null:', noteId);
           }
         } else {
           console.warn('[XHS] Not on note page:', tab.url);
@@ -272,7 +323,7 @@ async function processKeyword(tabId, keyword, maxNotes) {
 }
 
 /** Main task runner — processes all keywords sequentially. */
-async function runTask(keywords, maxNotes) {
+async function runTask(keywords, maxNotes, dateFilter = 0) {
   stopRequested = false;
   chrome.storage.local.set({ taskRunning: true });
 
@@ -285,7 +336,7 @@ async function runTask(keywords, maxNotes) {
       if (stopRequested) break;
       sendProgress(`开始处理关键词「${keyword}」...`);
 
-      const collected = await processKeyword(tabId, keyword, maxNotes);
+      const collected = await processKeyword(tabId, keyword, maxNotes, dateFilter);
 
       if (collected.length > 0) {
         try {
@@ -307,6 +358,6 @@ async function runTask(keywords, maxNotes) {
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === 'START_TASK') runTask(msg.keywords, msg.maxNotes);
+  if (msg.type === 'START_TASK') runTask(msg.keywords, msg.maxNotes, msg.dateFilter || 0);
   if (msg.type === 'STOP_TASK') stopRequested = true;
 });
