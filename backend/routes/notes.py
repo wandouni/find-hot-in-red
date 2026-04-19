@@ -37,6 +37,36 @@ def list_notes(
     return {"total": total, "items": [NoteOut.model_validate(n) for n in notes]}
 
 
+@router.get("/api/export/notes.md")
+def export_notes_md(
+    keyword: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Export notes as Markdown, sorted by likes descending."""
+    q = db.query(Note).order_by(desc(Note.likes))
+    if keyword:
+        q = q.filter(Note.keyword == keyword)
+    notes = q.all()
+
+    lines = []
+    for note in notes:
+        title = note.title or "（无标题）"
+        url = note.url or ""
+        likes = note.likes or 0
+        collects = note.collects or 0
+        lines.append(f"[{title}]({url})")
+        lines.append(f"点赞数量：{likes}；收藏数量{collects}；")
+        lines.append("")   # blank line between entries
+
+    content = "\n".join(lines)
+    filename = f"xhs_notes{'_' + keyword if keyword else ''}.md"
+    return StreamingResponse(
+        iter([content]),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/api/export/notes")
 def export_notes(
     keyword: Optional[str] = Query(None),
