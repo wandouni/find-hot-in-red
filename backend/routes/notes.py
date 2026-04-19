@@ -37,7 +37,7 @@ def list_notes(
     return {"total": total, "items": [NoteOut.model_validate(n) for n in notes]}
 
 
-@router.get("/api/notes/export")
+@router.get("/api/export/notes")
 def export_notes(
     keyword: Optional[str] = Query(None),
     db: Session = Depends(get_db),

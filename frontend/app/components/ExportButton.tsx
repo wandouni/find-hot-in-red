@@ -6,7 +6,7 @@ interface ExportButtonProps {
 
 export function ExportButton({ keyword }: ExportButtonProps) {
   const href =
-    'http://localhost:8000/api/notes/export' +
+    'http://localhost:8000/api/export/notes' +
     (keyword ? `?keyword=${encodeURIComponent(keyword)}` : '');
 
   return (
