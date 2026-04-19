@@ -103,8 +103,8 @@ def export_notes(
         ws_notes.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
     ws_notes.row_dimensions[1].height = 20
 
-    # Freeze top row + first column (pane starts at B2)
-    ws_notes.freeze_panes = "B2"
+    # Freeze top row + columns up to and including 标题 (col C), pane starts at D2
+    ws_notes.freeze_panes = "D2"
     # Auto-filter across all header columns
     ws_notes.auto_filter.ref = ws_notes.dimensions
 
@@ -134,8 +134,8 @@ def export_notes(
         ws_cmts.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
     ws_cmts.row_dimensions[1].height = 20
 
-    # Freeze top row + first column; auto-filter
-    ws_cmts.freeze_panes = "B2"
+    # Freeze top row + columns up to and including 笔记标题 (col B), pane starts at C2
+    ws_cmts.freeze_panes = "C2"
     ws_cmts.auto_filter.ref = ws_cmts.dimensions
 
     # Stream the workbook
