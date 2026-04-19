@@ -103,6 +103,11 @@ def export_notes(
         ws_notes.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
     ws_notes.row_dimensions[1].height = 20
 
+    # Freeze top row + first column (pane starts at B2)
+    ws_notes.freeze_panes = "B2"
+    # Auto-filter across all header columns
+    ws_notes.auto_filter.ref = ws_notes.dimensions
+
     # ── Sheet 2: Comments ────────────────────────────────────────────
     ws_cmts = wb.create_sheet("评论")
     comment_headers = ["笔记ID", "笔记标题", "评论排名", "评论内容", "评论点赞数"]
@@ -128,6 +133,10 @@ def export_notes(
     for i, w in enumerate(cmt_widths, 1):
         ws_cmts.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
     ws_cmts.row_dimensions[1].height = 20
+
+    # Freeze top row + first column; auto-filter
+    ws_cmts.freeze_panes = "B2"
+    ws_cmts.auto_filter.ref = ws_cmts.dimensions
 
     # Stream the workbook
     buf = io.BytesIO()
