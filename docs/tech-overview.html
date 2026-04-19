@@ -1,0 +1,1421 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XHS Insight · 技术架构说明</title>
+  <style>
+    :root {
+      --red:       #e0284a;
+      --red-dark:  #b81f38;
+      --red-light: #fff0f3;
+      --bg:        #f7f8fa;
+      --card:      #ffffff;
+      --border:    #e8eaed;
+      --text:      #1a1a2e;
+      --muted:     #6b7280;
+      --code-bg:   #1e1e2e;
+      --code-text: #cdd6f4;
+      --accent1:   #3b82f6;
+      --accent2:   #10b981;
+      --accent3:   #f59e0b;
+      --accent4:   #8b5cf6;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      font-size: 15px;
+    }
+
+    /* ── Header ── */
+    header {
+      background: linear-gradient(135deg, var(--red) 0%, #c0392b 60%, #8b1a2a 100%);
+      color: white;
+      padding: 60px 40px 50px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    header::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.04'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    }
+    header h1 {
+      font-size: 2.6rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-bottom: 12px;
+      position: relative;
+    }
+    header .tagline {
+      font-size: 1.1rem;
+      opacity: 0.88;
+      max-width: 600px;
+      margin: 0 auto 28px;
+      position: relative;
+    }
+    .badge-row {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+      position: relative;
+    }
+    .badge {
+      background: rgba(255,255,255,0.18);
+      border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+
+    /* ── Nav ── */
+    nav {
+      background: white;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 0 40px;
+    }
+    nav ul {
+      display: flex;
+      list-style: none;
+      gap: 0;
+      max-width: 1100px;
+      margin: 0 auto;
+      overflow-x: auto;
+    }
+    nav ul li a {
+      display: block;
+      padding: 14px 18px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+      border-bottom: 2px solid transparent;
+      transition: color .2s, border-color .2s;
+    }
+    nav ul li a:hover {
+      color: var(--red);
+      border-bottom-color: var(--red);
+    }
+
+    /* ── Layout ── */
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 48px 24px 80px;
+    }
+
+    section {
+      margin-bottom: 64px;
+      scroll-margin-top: 64px;
+    }
+
+    h2 {
+      font-size: 1.65rem;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    h2 .icon {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    h2 .section-num {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--red);
+      background: var(--red-light);
+      border-radius: 6px;
+      padding: 2px 8px;
+    }
+    .section-desc {
+      color: var(--muted);
+      font-size: 14px;
+      margin-bottom: 28px;
+      padding-left: 48px;
+    }
+
+    h3 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin: 28px 0 12px;
+      color: var(--text);
+    }
+    h4 {
+      font-size: 0.95rem;
+      font-weight: 700;
+      margin: 20px 0 8px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+    }
+    .card.highlight {
+      border-color: var(--red);
+      border-width: 2px;
+      background: var(--red-light);
+    }
+    .card-title {
+      font-weight: 700;
+      font-size: 1rem;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-title .dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* ── Code ── */
+    pre {
+      background: var(--code-bg);
+      color: var(--code-text);
+      border-radius: 12px;
+      padding: 20px 24px;
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.65;
+      margin: 16px 0;
+      position: relative;
+    }
+    pre .lang-label {
+      position: absolute;
+      top: 10px; right: 14px;
+      font-size: 10px;
+      opacity: 0.5;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    code {
+      font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace;
+    }
+    p code, li code {
+      background: #f0f1f3;
+      border: 1px solid #e2e4e8;
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 12.5px;
+      color: #c0392b;
+    }
+
+    /* ── Syntax highlighting (manual) ── */
+    .kw  { color: #cba6f7; }   /* keywords */
+    .fn  { color: #89b4fa; }   /* functions */
+    .str { color: #a6e3a1; }   /* strings */
+    .cm  { color: #585b70; font-style: italic; } /* comments */
+    .num { color: #fab387; }   /* numbers */
+    .cl  { color: #f9e2af; }   /* class names */
+    .op  { color: #89dceb; }   /* operators / symbols */
+
+    /* ── Flow diagram ── */
+    .flow {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 28px;
+      overflow-x: auto;
+    }
+    .flow-row {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      min-width: 600px;
+    }
+    .flow-node {
+      background: white;
+      border: 2px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      text-align: center;
+      min-width: 120px;
+      flex-shrink: 0;
+    }
+    .flow-node.red   { border-color: var(--red);    background: var(--red-light);  color: var(--red); }
+    .flow-node.blue  { border-color: var(--accent1); background: #eff6ff; color: var(--accent1); }
+    .flow-node.green { border-color: var(--accent2); background: #ecfdf5; color: #059669; }
+    .flow-node.amber { border-color: var(--accent3); background: #fffbeb; color: #d97706; }
+    .flow-node.purple{ border-color: var(--accent4); background: #f5f3ff; color: #7c3aed; }
+    .flow-arrow {
+      color: var(--muted);
+      font-size: 18px;
+      padding: 0 8px;
+      flex-shrink: 0;
+    }
+    .flow-vertical {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+      padding: 16px 0;
+    }
+    .flow-vrow {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .flow-vnode {
+      background: white;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .flow-vnode.red   { border-color: var(--red);    background: var(--red-light); }
+    .flow-vnode.blue  { border-color: var(--accent1); background: #eff6ff; }
+    .flow-vnode.green { border-color: var(--accent2); background: #ecfdf5; }
+    .vdivider {
+      width: 2px;
+      height: 20px;
+      background: var(--border);
+      margin-left: 22px;
+    }
+    .flow-annotation {
+      font-size: 11.5px;
+      color: var(--muted);
+      margin-left: 8px;
+    }
+
+    /* ── Tables ── */
+    .table-wrap { overflow-x: auto; margin: 16px 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13.5px;
+    }
+    th {
+      background: #f1f3f6;
+      text-align: left;
+      padding: 10px 14px;
+      font-weight: 700;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--muted);
+      border-bottom: 2px solid var(--border);
+    }
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fafbfc; }
+    td code { font-size: 12px; }
+
+    /* ── Chips / tags ── */
+    .chip {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 9px;
+      border-radius: 20px;
+      letter-spacing: 0.3px;
+    }
+    .chip.red    { background: var(--red-light); color: var(--red); }
+    .chip.blue   { background: #eff6ff; color: var(--accent1); }
+    .chip.green  { background: #ecfdf5; color: #059669; }
+    .chip.amber  { background: #fffbeb; color: #d97706; }
+    .chip.purple { background: #f5f3ff; color: #7c3aed; }
+    .chip.gray   { background: #f3f4f6; color: #6b7280; }
+
+    /* ── Step list ── */
+    .steps { list-style: none; padding: 0; }
+    .steps li {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 20px;
+      align-items: flex-start;
+    }
+    .step-num {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: var(--red);
+      color: white;
+      font-size: 13px;
+      font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .step-body { flex: 1; }
+    .step-body strong { display: block; margin-bottom: 4px; }
+
+    /* ── Callout ── */
+    .callout {
+      border-left: 4px solid var(--red);
+      background: var(--red-light);
+      border-radius: 0 10px 10px 0;
+      padding: 14px 18px;
+      margin: 16px 0;
+      font-size: 14px;
+    }
+    .callout.blue { border-color: var(--accent1); background: #eff6ff; }
+    .callout.green { border-color: var(--accent2); background: #ecfdf5; }
+    .callout.amber { border-color: var(--accent3); background: #fffbeb; }
+
+    /* ── Architecture diagram (CSS) ── */
+    .arch {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+      margin: 16px 0;
+    }
+    .arch-col {
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .arch-col-header {
+      padding: 12px 16px;
+      font-weight: 700;
+      font-size: 13px;
+      text-align: center;
+    }
+    .arch-col-body {
+      padding: 12px 16px;
+      font-size: 12.5px;
+    }
+    .arch-file {
+      padding: 5px 10px;
+      border-radius: 6px;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .arch-file .fname {
+      font-family: monospace;
+      font-weight: 600;
+      font-size: 12px;
+    }
+    .arch-file .fdesc {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    /* ── divider ── */
+    .divider {
+      height: 1px;
+      background: linear-gradient(to right, transparent, var(--border), transparent);
+      margin: 40px 0;
+    }
+
+    /* ── misc ── */
+    ul.bullet { padding-left: 20px; }
+    ul.bullet li { margin-bottom: 5px; }
+    p { margin-bottom: 12px; }
+
+    @media (max-width: 700px) {
+      header { padding: 40px 20px 36px; }
+      header h1 { font-size: 1.9rem; }
+      nav { padding: 0 12px; }
+      main { padding: 32px 16px 60px; }
+      .arch { grid-template-columns: 1fr; }
+      .flow-row { flex-direction: column; }
+      .flow-arrow { transform: rotate(90deg); }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════ HEADER ════════════════════════════ -->
+<header>
+  <h1>XHS Insight</h1>
+  <p class="tagline">小红书内容采集与分析平台 — 技术架构深度说明</p>
+  <div class="badge-row">
+    <span class="badge">Chrome Extension MV3</span>
+    <span class="badge">FastAPI + SQLite</span>
+    <span class="badge">Next.js 14</span>
+    <span class="badge">反检测采集</span>
+    <span class="badge">API 拦截</span>
+  </div>
+</header>
+
+<!-- ═══════════════════════════ NAV ═══════════════════════════════ -->
+<nav>
+  <ul>
+    <li><a href="#overview">整体架构</a></li>
+    <li><a href="#extension">浏览器插件</a></li>
+    <li><a href="#interceptor">API 拦截</a></li>
+    <li><a href="#anti-detect">反检测策略</a></li>
+    <li><a href="#backend">后端服务</a></li>
+    <li><a href="#frontend">前端看板</a></li>
+    <li><a href="#dataflow">数据流</a></li>
+    <li><a href="#api-ref">接口参考</a></li>
+  </ul>
+</nav>
+
+<!-- ═══════════════════════════ MAIN ═════════════════════════════ -->
+<main>
+
+  <!-- ① 整体架构 -->
+  <section id="overview">
+    <h2>
+      <span class="icon" style="background:#fff0f3">🗺️</span>
+      整体架构
+      <span class="section-num">01</span>
+    </h2>
+    <p class="section-desc">三层解耦设计：Chrome 插件负责采集、FastAPI 负责持久化与导出、Next.js 负责展示与操作</p>
+
+    <div class="arch">
+      <!-- 插件列 -->
+      <div class="arch-col">
+        <div class="arch-col-header" style="background:var(--red-light);color:var(--red)">
+          🧩 Chrome 扩展
+        </div>
+        <div class="arch-col-body">
+          <div class="arch-file" style="background:#fff0f3">
+            <span>📋</span>
+            <div><div class="fname">manifest.json</div><div class="fdesc">权限声明 / 注入配置</div></div>
+          </div>
+          <div class="arch-file" style="background:#fff0f3">
+            <span>🎛️</span>
+            <div><div class="fname">popup.html/js</div><div class="fdesc">用户操作界面</div></div>
+          </div>
+          <div class="arch-file" style="background:#fff0f3">
+            <span>⚙️</span>
+            <div><div class="fname">background.js</div><div class="fdesc">Service Worker 主控</div></div>
+          </div>
+          <div class="arch-file" style="background:#fce7ef">
+            <span>🔍</span>
+            <div><div class="fname">interceptor.js</div><div class="fdesc">MAIN world API 拦截</div></div>
+          </div>
+          <div class="arch-file" style="background:#fff0f3">
+            <span>📄</span>
+            <div><div class="fname">content.js</div><div class="fdesc">页面 DOM 辅助</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 后端列 -->
+      <div class="arch-col">
+        <div class="arch-col-header" style="background:#eff6ff;color:var(--accent1)">
+          🐍 FastAPI 后端
+        </div>
+        <div class="arch-col-body">
+          <div class="arch-file" style="background:#eff6ff">
+            <span>🚀</span>
+            <div><div class="fname">main.py</div><div class="fdesc">CORS / 路由挂载</div></div>
+          </div>
+          <div class="arch-file" style="background:#eff6ff">
+            <span>📊</span>
+            <div><div class="fname">models.py</div><div class="fdesc">Task / Note / Comment 模型</div></div>
+          </div>
+          <div class="arch-file" style="background:#eff6ff">
+            <span>📥</span>
+            <div><div class="fname">routes/ingest.py</div><div class="fdesc">批量写入接口</div></div>
+          </div>
+          <div class="arch-file" style="background:#eff6ff">
+            <span>📝</span>
+            <div><div class="fname">routes/notes.py</div><div class="fdesc">查询 / 导出接口</div></div>
+          </div>
+          <div class="arch-file" style="background:#eff6ff">
+            <span>🗂️</span>
+            <div><div class="fname">routes/tasks.py</div><div class="fdesc">方案管理接口</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 前端列 -->
+      <div class="arch-col">
+        <div class="arch-col-header" style="background:#ecfdf5;color:#059669">
+          ⚛️ Next.js 前端
+        </div>
+        <div class="arch-col-body">
+          <div class="arch-file" style="background:#ecfdf5">
+            <span>🏠</span>
+            <div><div class="fname">app/page.tsx</div><div class="fdesc">方案选择 / 内容看板</div></div>
+          </div>
+          <div class="arch-file" style="background:#ecfdf5">
+            <span>📋</span>
+            <div><div class="fname">SchemeList.tsx</div><div class="fdesc">采集方案列表</div></div>
+          </div>
+          <div class="arch-file" style="background:#ecfdf5">
+            <span>📊</span>
+            <div><div class="fname">NotesDashboard.tsx</div><div class="fdesc">笔记列表 / 筛选</div></div>
+          </div>
+          <div class="arch-file" style="background:#ecfdf5">
+            <span>💾</span>
+            <div><div class="fname">ExportButton.tsx</div><div class="fdesc">Excel / Markdown 导出</div></div>
+          </div>
+          <div class="arch-file" style="background:#ecfdf5">
+            <span>🔌</span>
+            <div><div class="fname">lib/api.ts</div><div class="fdesc">API 客户端封装</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 层间通信 -->
+    <div class="card" style="margin-top:20px">
+      <div class="card-title">层间通信方式</div>
+      <div class="flow">
+        <div class="flow-row">
+          <div class="flow-node red">用户<br/><small>popup.html</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node red">chrome.runtime<br/><small>消息传递</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node red">Service Worker<br/><small>background.js</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node blue">POST /api/notes<br/><small>fetch() HTTP</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node blue">FastAPI<br/><small>localhost:8000</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node green">Next.js 前端<br/><small>localhost:3000</small></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ② 浏览器插件 -->
+  <section id="extension">
+    <h2>
+      <span class="icon" style="background:#fff0f3">🧩</span>
+      浏览器插件 — 核心采集引擎
+      <span class="section-num">02</span>
+    </h2>
+    <p class="section-desc">基于 Chrome Manifest V3，插件是整个系统的数据入口。设计目标：用最自然的方式模拟真实用户行为，在不触发平台风控的前提下完成批量采集。</p>
+
+    <!-- 文件组织 -->
+    <h3>🗂️ 文件职责划分</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>文件</th>
+            <th>运行环境</th>
+            <th>注入时机</th>
+            <th>核心职责</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>manifest.json</code></td>
+            <td><span class="chip gray">配置</span></td>
+            <td>—</td>
+            <td>声明权限、注入规则、Service Worker 指定</td>
+          </tr>
+          <tr>
+            <td><code>popup.html/js</code></td>
+            <td><span class="chip purple">扩展页面</span></td>
+            <td>用户点击图标</td>
+            <td>关键词输入、数量设置、日期筛选、启动/停止、进度展示</td>
+          </tr>
+          <tr>
+            <td><code>interceptor.js</code></td>
+            <td><span class="chip red">MAIN world</span></td>
+            <td><strong>document_start</strong>（最早）</td>
+            <td>劫持 fetch / XHR，从 XHS API 响应里提取 token + 发布时间</td>
+          </tr>
+          <tr>
+            <td><code>background.js</code></td>
+            <td><span class="chip blue">Service Worker</span></td>
+            <td>常驻后台</td>
+            <td>主控循环：导航、等待、抓取 DOM、批量上报</td>
+          </tr>
+          <tr>
+            <td><code>content.js</code></td>
+            <td><span class="chip green">isolated world</span></td>
+            <td>document_idle</td>
+            <td>辅助 DOM 操作（备用）</td>
+          </tr>
+          <tr>
+            <td><code>config.js</code></td>
+            <td><span class="chip gray">常量</span></td>
+            <td>—</td>
+            <td>后端 URL、延迟范围、最大数量</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <strong>💡 为什么需要 MAIN world？</strong><br/>
+      Chrome MV3 的 Content Script 默认运行在 isolated world，无法访问页面原始的 <code>window.fetch</code>。<code>interceptor.js</code> 必须在 MAIN world 运行，才能在 XHS 自己的 JS 加载前替换原生 fetch/XHR，从而拦截其 API 响应。
+    </div>
+
+    <!-- 权限声明 -->
+    <h3>🔐 权限声明（manifest.json 关键片段）</h3>
+    <pre><code class="lang-label">JSON</code><span class="kw">{</span>
+  <span class="str">"manifest_version"</span><span class="op">:</span> <span class="num">3</span>,
+  <span class="str">"permissions"</span><span class="op">:</span> [<span class="str">"tabs"</span>, <span class="str">"scripting"</span>, <span class="str">"storage"</span>, <span class="str">"activeTab"</span>],
+  <span class="str">"host_permissions"</span><span class="op">:</span> [
+    <span class="str">"https://www.xiaohongshu.com/*"</span>,
+    <span class="str">"http://localhost:8000/*"</span>
+  ],
+  <span class="str">"content_scripts"</span><span class="op">:</span> [{
+    <span class="str">"matches"</span><span class="op">:</span> [<span class="str">"https://www.xiaohongshu.com/*"</span>],
+    <span class="str">"js"</span><span class="op">:</span> [<span class="str">"interceptor.js"</span>],
+    <span class="str">"run_at"</span><span class="op">:</span> <span class="str">"document_start"</span>,  <span class="cm">// 比 XHS 自己的 JS 还早</span>
+    <span class="str">"world"</span><span class="op">:</span> <span class="str">"MAIN"</span>            <span class="cm">// 进入页面真实 JS 上下文</span>
+  }],
+  <span class="str">"background"</span><span class="op">:</span> { <span class="str">"service_worker"</span><span class="op">:</span> <span class="str">"background.js"</span> }
+<span class="kw">}</span></pre>
+
+    <!-- 主控流程 -->
+    <h3>⚙️ Service Worker 主控流程（background.js）</h3>
+    <p>收到 <code>START_TASK</code> 消息后，background.js 按以下步骤驱动采集：</p>
+
+    <ul class="steps">
+      <li>
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <strong>创建方案（Task）</strong>
+          向后端 <code>POST /api/tasks</code> 注册本次采集任务，获得 <code>task_id</code>，后续所有笔记都归属该方案，方便前端按方案隔离展示。
+        </div>
+      </li>
+      <li>
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <strong>逐关键词处理</strong>
+          对每个关键词构造 XHS 搜索 URL（含 <code>sort=time_descending</code>），调用 <code>chrome.tabs.update</code> 导航到搜索结果页。
+<pre><code>const searchUrl =
+  `https://www.xiaohongshu.com/search_result`
+  + `?keyword=${encodeURIComponent(keyword)}&type=51`
+  + (dateFilter > 0 ? '&sort=time_descending' : '');</code></pre>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <strong>点击 XHS 原生日期筛选按钮</strong>
+          调用 <code>applyXHSDateFilter()</code>，用 <code>executeScript</code> 向页面注入 JS，查找"发布时间"区域内的筛选按钮并触发 <code>MouseEvent('click')</code>，让 XHS 自己过滤掉旧内容，从源头减少无效访问。
+        </div>
+      </li>
+      <li>
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <strong>读取 interceptor.js 捕获的链接</strong>
+          调用 <code>getCapturedLinks(tabId)</code>，在 MAIN world 读取 <code>window.__xhsLinks</code>，拿到笔记 ID、URL 和发布时间戳。对每条链接先做 API 时间戳预过滤（<code>passesTimePreFilter</code>），跳过超期笔记，无需打开其页面。
+        </div>
+      </li>
+      <li>
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <strong>访问笔记页，抓取 DOM</strong>
+          导航到单篇笔记，等待加载完成，调用 <code>scrapeCurrentPage()</code> 提取标题、正文、作者、点赞数、收藏数、发布日期、前 10 条热评。
+        </div>
+      </li>
+      <li>
+        <div class="step-num">6</div>
+        <div class="step-body">
+          <strong>二次日期验证</strong>
+          用 <code>parseDaysAgo(note.publish_date)</code> 解析页面上的中文日期（"刚刚"、"3小时前"、"昨天"等），若 <code>daysAgo</code> 为有限数且超出筛选窗口则丢弃。无法解析的日期（返回 <code>Infinity</code>）不丢弃，继续保留。
+        </div>
+      </li>
+      <li>
+        <div class="step-num">7</div>
+        <div class="step-body">
+          <strong>批量上报后端</strong>
+          每个关键词采集结束后，调用 <code>pushNotes(collected, taskId)</code>，一次性 <code>POST /api/notes</code>，后端执行 upsert 避免重复。
+        </div>
+      </li>
+      <li>
+        <div class="step-num">8</div>
+        <div class="step-body">
+          <strong>更新方案状态</strong>
+          所有关键词处理完后，<code>PATCH /api/tasks/{id}</code> 将方案状态标记为 <code>done</code>，前端刷新时显示"已完成"。
+        </div>
+      </li>
+    </ul>
+
+    <!-- popup 通信 -->
+    <h3>📡 Popup ↔ Service Worker 消息协议</h3>
+    <div class="card-grid">
+      <div class="card">
+        <div class="card-title"><div class="dot" style="background:var(--red)"></div>START_TASK（popup → background）</div>
+        <pre style="margin:0;font-size:12px"><code><span class="kw">{</span>
+  <span class="str">type</span><span class="op">:</span> <span class="str">'START_TASK'</span>,
+  keywords<span class="op">:</span> [<span class="str">'职场副业'</span>, <span class="str">'AI工具'</span>],
+  maxNotes<span class="op">:</span> <span class="num">20</span>,
+  dateFilter<span class="op">:</span> <span class="num">7</span>   <span class="cm">// 0|1|7|180</span>
+<span class="kw">}</span></code></pre>
+      </div>
+      <div class="card">
+        <div class="card-title"><div class="dot" style="background:var(--accent1)"></div>PROGRESS_UPDATE（background → popup）</div>
+        <pre style="margin:0;font-size:12px"><code><span class="kw">{</span>
+  <span class="str">type</span><span class="op">:</span> <span class="str">'PROGRESS_UPDATE'</span>,
+  message<span class="op">:</span> <span class="str">'关键词「职场」: 正在抓取 5/20…'</span>
+<span class="kw">}</span></code></pre>
+      </div>
+      <div class="card">
+        <div class="card-title"><div class="dot" style="background:var(--accent2)"></div>TASK_DONE（background → popup）</div>
+        <pre style="margin:0;font-size:12px"><code><span class="kw">{</span>
+  <span class="str">type</span><span class="op">:</span> <span class="str">'TASK_DONE'</span>,
+  total<span class="op">:</span> <span class="num">38</span>,
+  taskId<span class="op">:</span> <span class="num">5</span>
+<span class="kw">}</span></code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ③ API 拦截 -->
+  <section id="interceptor">
+    <h2>
+      <span class="icon" style="background:#fff0f3">🔍</span>
+      API 拦截机制（interceptor.js）
+      <span class="section-num">03</span>
+    </h2>
+    <p class="section-desc">这是整个插件最精密的技术模块。它在 XHS 任何 JS 执行之前，就偷梁换柱地替换了浏览器原生的网络请求方法，使得 XHS 的每次 API 返回都对我们透明可见。</p>
+
+    <div class="callout amber">
+      <strong>⚠️ 为什么不能在 background.js 里直接调 XHS API？</strong><br/>
+      XHS 的搜索/详情 API 有严格的签名校验（<code>x-s</code>、<code>x-t</code> 等请求头由前端 JS 动态生成），且 <code>xsec_token</code> 只在页面内 JS 调用 API 时出现在响应里。直接 fetch 无法绕过签名，也拿不到 token。唯一可靠方式是"搭便车"——让 XHS 自己的 JS 发请求，我们在旁边截获响应。
+    </div>
+
+    <h3>🔧 实现原理：Monkey Patch</h3>
+    <p>在 <code>document_start</code> 阶段，XHS 的任何 JS 还未加载，此时替换原生方法，XHS 后续调用的就是我们的包装版本：</p>
+
+    <pre><code class="lang-label">interceptor.js</code><span class="op">(</span><span class="kw">function</span> <span class="op">() {</span>
+  <span class="cm">// 共享存储: { noteId → { url, time } }</span>
+  window.__xhsLinks <span class="op">=</span> window.__xhsLinks <span class="op">||</span> <span class="op">{};</span>
+
+  <span class="cm">/** 统一时间戳为毫秒：XHS 部分接口用秒，部分用毫秒 */</span>
+  <span class="kw">function</span> <span class="fn">toMs</span><span class="op">(</span>t<span class="op">) {</span>
+    <span class="kw">const</span> n <span class="op">=</span> <span class="fn">Number</span><span class="op">(</span>t<span class="op">);</span>
+    <span class="cm">// 秒级时间戳 < 1e12，毫秒级 ≥ 1e12</span>
+    <span class="kw">return</span> n <span class="op">&lt;</span> <span class="num">1_000_000_000_000</span> <span class="op">?</span> n <span class="op">*</span> <span class="num">1000</span> <span class="op">:</span> n<span class="op">;</span>
+  <span class="op">}</span>
+
+  <span class="kw">function</span> <span class="fn">extractTokens</span><span class="op">(</span>data<span class="op">) {</span>
+    <span class="kw">const</span> items <span class="op">=</span> data<span class="op">?.</span>data<span class="op">?.</span>items <span class="op">??</span> data<span class="op">?.</span>items <span class="op">??</span> []<span class="op">;</span>
+    items<span class="op">.</span><span class="fn">forEach</span><span class="op">(</span>item <span class="op">=&gt; {</span>
+      <span class="kw">const</span> id    <span class="op">=</span> item<span class="op">?.</span>id <span class="op">||</span> item<span class="op">?.</span>note_id<span class="op">;</span>
+      <span class="kw">const</span> card  <span class="op">=</span> item<span class="op">?.</span>note_card <span class="op">??</span> item<span class="op">?.</span>noteCard <span class="op">??</span> <span class="op">{};</span>
+      <span class="kw">const</span> token <span class="op">=</span> item<span class="op">?.</span>xsec_token <span class="op">??</span> card<span class="op">?.</span>xsec_token<span class="op">;</span>
+      <span class="cm">// 发布时间：多字段兜底，适配 XHS 不同版本的响应结构</span>
+      <span class="kw">const</span> rawTime <span class="op">=</span> card<span class="op">?.</span>time <span class="op">??</span> card<span class="op">?.</span>create_time
+                   <span class="op">??</span> item<span class="op">?.</span>time <span class="op">??</span> item<span class="op">?.</span>create_time <span class="op">??</span> <span class="num">0</span><span class="op">;</span>
+
+      <span class="kw">if</span> <span class="op">(</span>id <span class="op">&amp;&amp;</span> token<span class="op">) {</span>
+        window.__xhsLinks<span class="op">[</span>id<span class="op">] = {</span>
+          url<span class="op">:</span> <span class="str">'https://www.xiaohongshu.com/explore/'</span> <span class="op">+</span> id
+               <span class="op">+</span> <span class="str">'?xsec_token='</span> <span class="op">+</span> <span class="fn">encodeURIComponent</span><span class="op">(</span>token<span class="op">)</span>
+               <span class="op">+</span> <span class="str">'&amp;xsec_source=pc_search'</span><span class="op">,</span>
+          time<span class="op">:</span> <span class="fn">toMs</span><span class="op">(</span>rawTime<span class="op">),</span>   <span class="cm">// Unix 毫秒</span>
+        <span class="op">};</span>
+      <span class="op">}</span>
+    <span class="op">});</span>
+  <span class="op">}</span>
+
+  <span class="cm">/* ── 劫持 window.fetch ──────────────────────────────────── */</span>
+  <span class="kw">const</span> _fetch <span class="op">=</span> window<span class="op">.</span>fetch<span class="op">;</span>
+  window<span class="op">.</span>fetch <span class="op">=</span> <span class="kw">async function</span> <span class="op">(...</span>args<span class="op">) {</span>
+    <span class="kw">const</span> resp <span class="op">=</span> <span class="kw">await</span> _fetch<span class="op">.</span><span class="fn">apply</span><span class="op">(</span><span class="kw">this</span><span class="op">,</span> args<span class="op">);</span>
+    resp<span class="op">.</span><span class="fn">clone</span><span class="op">().</span><span class="fn">json</span><span class="op">().</span><span class="fn">then</span><span class="op">(</span>extractTokens<span class="op">).</span><span class="fn">catch</span><span class="op">(() =&gt; {});</span>
+    <span class="kw">return</span> resp<span class="op">;</span>  <span class="cm">// 原样返回，XHS 感知不到任何变化</span>
+  <span class="op">};</span>
+
+  <span class="cm">/* ── 劫持 XMLHttpRequest.send ───────────────────────────── */</span>
+  <span class="kw">const</span> _send <span class="op">=</span> XMLHttpRequest<span class="op">.</span>prototype<span class="op">.</span>send<span class="op">;</span>
+  XMLHttpRequest<span class="op">.</span>prototype<span class="op">.</span>send <span class="op">=</span> <span class="kw">function</span> <span class="op">(...</span>args<span class="op">) {</span>
+    <span class="kw">this</span><span class="op">.</span><span class="fn">addEventListener</span><span class="op">(</span><span class="str">'load'</span><span class="op">, () =&gt; {</span>
+      <span class="kw">try</span> <span class="op">{</span> <span class="fn">extractTokens</span><span class="op">(</span>JSON<span class="op">.</span><span class="fn">parse</span><span class="op">(</span><span class="kw">this</span><span class="op">.</span>responseText<span class="op">));</span> <span class="op">}</span> <span class="kw">catch</span> <span class="op">{}</span>
+    <span class="op">});</span>
+    <span class="kw">return</span> _send<span class="op">.</span><span class="fn">apply</span><span class="op">(</span><span class="kw">this</span><span class="op">,</span> args<span class="op">);</span>
+  <span class="op">};</span>
+<span class="op">})()</span></pre>
+
+    <h3>📦 window.__xhsLinks 数据结构</h3>
+    <pre><code class="lang-label">JS 运行时</code><span class="cm">// 由 interceptor.js 写入，background.js 读取</span>
+window<span class="op">.</span>__xhsLinks <span class="op">= {</span>
+  <span class="str">"67a3f2b8e..."</span><span class="op">: {</span>
+    url<span class="op">:</span>  <span class="str">"https://www.xiaohongshu.com/explore/67a3f2b8e..."</span>
+          <span class="op">+</span> <span class="str">"?xsec_token=ABCxyz&amp;xsec_source=pc_search"</span><span class="op">,</span>
+    time<span class="op">:</span> <span class="num">1713427200000</span>   <span class="cm">// Unix ms，来自 API 响应</span>
+  <span class="op">},</span>
+  <span class="op">...</span>
+<span class="op">}</span></pre>
+
+    <h3>🌉 background.js 如何跨 world 读取</h3>
+    <p>Service Worker 与 MAIN world 互不可见，需通过 <code>executeScript</code> 桥接：</p>
+    <pre><code class="lang-label">background.js</code><span class="kw">async function</span> <span class="fn">getCapturedLinks</span><span class="op">(</span>tabId<span class="op">) {</span>
+  <span class="kw">const</span> results <span class="op">=</span> <span class="kw">await</span> chrome<span class="op">.</span>scripting<span class="op">.</span><span class="fn">executeScript</span><span class="op">({</span>
+    target<span class="op">: {</span> tabId <span class="op">},</span>
+    world<span class="op">:</span>  <span class="str">'MAIN'</span>,           <span class="cm">// 进入页面的 JS 上下文</span>
+    func<span class="op">:</span>   <span class="op">() =&gt;</span>
+      Object<span class="op">.</span><span class="fn">entries</span><span class="op">(</span>window<span class="op">.</span>__xhsLinks <span class="op">||</span> <span class="op">{})</span>
+             <span class="op">.</span><span class="fn">map</span><span class="op">(([</span>id<span class="op">,</span> val<span class="op">]) =&gt; ({</span>
+               id<span class="op">,</span>
+               url<span class="op">:</span>  <span class="kw">typeof</span> val <span class="op">===</span> <span class="str">'string'</span> <span class="op">?</span> val <span class="op">:</span> val<span class="op">.</span>url<span class="op">,</span>
+               time<span class="op">:</span> <span class="kw">typeof</span> val <span class="op">===</span> <span class="str">'string'</span> <span class="op">?</span> <span class="num">0</span>   <span class="op">:</span> val<span class="op">.</span>time<span class="op">,</span>
+             <span class="op">})),</span>
+  <span class="op">});</span>
+  <span class="kw">return</span> results<span class="op">[</span><span class="num">0</span><span class="op">]?.</span>result <span class="op">||</span> []<span class="op">;</span>
+<span class="op">}</span></pre>
+
+    <div class="callout green">
+      <strong>✅ 设计亮点</strong>：<code>window.__xhsLinks</code> 是一个幂等的字典，多次滚动触发多次 XHS API 调用，数据会不断追加进来。background.js 每轮只取"新增"的（用 <code>seenIds</code> Set 去重），实现了增量抓取，不会重复访问同一篇笔记。
+    </div>
+  </section>
+
+  <!-- ④ 反检测策略 -->
+  <section id="anti-detect">
+    <h2>
+      <span class="icon" style="background:#fffbeb">🛡️</span>
+      反检测 &amp; 拟人化策略
+      <span class="section-num">04</span>
+    </h2>
+    <p class="section-desc">XHS 对机器人访问有严格的频率检测和行为分析。我们在每个环节都注入了随机性，使采集轨迹与真实用户高度相似。</p>
+
+    <div class="card-grid">
+      <div class="card">
+        <div class="card-title"><div class="dot" style="background:var(--red)"></div>阅读时间模拟</div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:10px">三段式随机分布，模拟浏览型/阅读型/深度阅读型用户</p>
+        <pre style="margin:0;font-size:12px"><code><span class="kw">function</span> <span class="fn">readingDelay</span><span class="op">() {</span>
+  <span class="kw">const</span> r <span class="op">=</span> Math<span class="op">.</span><span class="fn">random</span><span class="op">();</span>
+  <span class="kw">if</span> <span class="op">(</span>r <span class="op">&lt;</span> <span class="num">0.4</span><span class="op">)</span>  <span class="cm">// 40%: 快速浏览</span>
+    <span class="kw">return</span> <span class="fn">sleep</span><span class="op">(</span><span class="fn">rand</span><span class="op">(</span><span class="num">5000</span><span class="op">,</span> <span class="num">12000</span><span class="op">));</span>
+  <span class="kw">if</span> <span class="op">(</span>r <span class="op">&lt;</span> <span class="num">0.75</span><span class="op">)</span> <span class="cm">// 35%: 正常阅读</span>
+    <span class="kw">return</span> <span class="fn">sleep</span><span class="op">(</span><span class="fn">rand</span><span class="op">(</span><span class="num">12000</span><span class="op">,</span> <span class="num">25000</span><span class="op">));</span>
+  <span class="cm">             // 25%: 深度阅读</span>
+  <span class="kw">return</span> <span class="fn">sleep</span><span class="op">(</span><span class="fn">rand</span><span class="op">(</span><span class="num">25000</span><span class="op">,</span> <span class="num">40000</span><span class="op">));</span>
+<span class="op">}</span></code></pre>
+      </div>
+      <div class="card">
+        <div class="card-title"><div class="dot" style="background:var(--accent3)"></div>仿人滚动</div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:10px">2-4 次不规则小滚动 + 25% 概率向上回滚（模拟重新看了一眼）</p>
+        <pre style="margin:0;font-size:12px"><code><span class="kw">async function</span> <span class="fn">humanScroll</span><span class="op">(</span>tabId<span class="op">) {</span>
+  <span class="kw">const</span> passes <span class="op">=</span> <span class="num">2</span> <span class="op">+</span> Math<span class="op">.</span><span class="fn">floor</span><span class="op">(</span>Math<span class="op">.</span><span class="fn">random</span><span class="op">() *</span> <span class="num">3</span><span class="op">);</span>
+  <span class="kw">for</span> <span class="op">(</span><span class="kw">let</span> i <span class="op">=</span> <span class="num">0</span><span class="op">;</span> i <span class="op">&lt;</span> passes<span class="op">;</span> i<span class="op">++) {</span>
+    <span class="kw">await</span> <span class="fn">scrollBy</span><span class="op">(</span><span class="fn">rand</span><span class="op">(</span><span class="num">250</span><span class="op">,</span> <span class="num">750</span><span class="op">));</span>
+    <span class="kw">await</span> <span class="fn">sleep</span><span class="op">(</span><span class="fn">rand</span><span class="op">(</span><span class="num">600</span><span class="op">,</span> <span class="num">1600</span><span class="op">));</span>
+  <span class="op">}</span>
+  <span class="kw">if</span> <span class="op">(</span>Math<span class="op">.</span><span class="fn">random</span><span class="op">() &lt;</span> <span class="num">0.25</span><span class="op">)</span>  <span class="cm">// 25% 向上回滚</span>
+    <span class="kw">await</span> <span class="fn">scrollBy</span><span class="op">(-</span><span class="fn">rand</span><span class="op">(</span><span class="num">80</span><span class="op">,</span> <span class="num">250</span><span class="op">));</span>
+<span class="op">}</span></code></pre>
+      </div>
+      <div class="card">
+        <div class="card-title"><div class="dot" style="background:var(--accent2)"></div>笔记间延迟</div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:10px">6-16s 随机延迟 + 每处理 5-9 篇休息 25-60s</p>
+        <pre style="margin:0;font-size:12px"><code><span class="cm">// 笔记间浏览延迟</span>
+<span class="kw">const</span> browsingDelay <span class="op">=</span> <span class="op">() =&gt;</span>
+  <span class="fn">sleep</span><span class="op">(</span><span class="fn">rand</span><span class="op">(</span>DELAY_MIN_MS<span class="op">,</span> DELAY_MAX_MS<span class="op">));</span>
+<span class="cm">// 6000ms ~ 16000ms</span>
+
+<span class="cm">// 阶段性休息（模拟查看手机/喝水等）</span>
+<span class="kw">async function</span> <span class="fn">maybeRest</span><span class="op">(</span>totalDone<span class="op">) {</span>
+  <span class="kw">const</span> restEvery <span class="op">=</span> <span class="num">5</span> <span class="op">+</span> Math<span class="op">.</span><span class="fn">floor</span><span class="op">(</span>Math<span class="op">.</span><span class="fn">random</span><span class="op">() *</span> <span class="num">5</span><span class="op">);</span>
+  <span class="kw">if</span> <span class="op">(</span>totalDone <span class="op">%</span> restEvery <span class="op">=== 0</span><span class="op">)</span>
+    <span class="kw">await</span> <span class="fn">sleep</span><span class="op">(</span><span class="fn">rand</span><span class="op">(</span><span class="num">25000</span><span class="op">,</span> <span class="num">60000</span><span class="op">));</span>
+<span class="op">}</span></code></pre>
+      </div>
+      <div class="card">
+        <div class="card-title"><div class="dot" style="background:var(--accent4)"></div>其他手段</div>
+        <ul class="bullet" style="font-size:13px">
+          <li>8% 概率随机跳过某条笔记（模拟用户不感兴趣）</li>
+          <li>30% 概率在笔记页内向下滚动（模拟看评论）</li>
+          <li>关键词之间随机休息 45-100 秒</li>
+          <li><code>sort=time_descending</code> 让 XHS 返回最新内容，减少翻页深度</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>📅 日期筛选按钮自动点击</h3>
+    <p>与其在采集后丢弃旧笔记，不如在源头就让 XHS 只返回符合时间范围的结果。<code>applyXHSDateFilter()</code> 通过 <code>executeScript</code> 向页面注入 JS，查找并点击 XHS 原生筛选面板中的日期选项：</p>
+    <pre><code class="lang-label">background.js → applyXHSDateFilter()</code><span class="cm">// 策略 A：精准定位"发布时间"区域，在其内部查找目标文字</span>
+<span class="kw">const</span> dateSection <span class="op">=</span> allEls<span class="op">.</span><span class="fn">find</span><span class="op">(</span>el <span class="op">=&gt;</span>
+  el<span class="op">.</span>textContent<span class="op">.</span><span class="fn">includes</span><span class="op">(</span><span class="str">'发布时间'</span><span class="op">)</span> <span class="op">&amp;&amp;</span>
+  el<span class="op">.</span>offsetParent <span class="op">!==</span> <span class="kw">null</span> <span class="op">&amp;&amp;</span>   <span class="cm">// 必须可见</span>
+  el<span class="op">.</span>offsetWidth <span class="op">&lt;</span> <span class="num">600</span>            <span class="cm">// 排除整个页面容器</span>
+<span class="op">);</span>
+<span class="kw">if</span> <span class="op">(</span>dateSection<span class="op">) {</span>
+  <span class="kw">const</span> btn <span class="op">=</span> [...dateSection<span class="op">.</span><span class="fn">querySelectorAll</span><span class="op">(</span><span class="str">'span,div,button,a,li'</span><span class="op">)]</span>
+    <span class="op">.</span><span class="fn">find</span><span class="op">(</span>el <span class="op">=&gt;</span> el<span class="op">.</span>textContent<span class="op">.</span><span class="fn">trim</span><span class="op">() ===</span> targetText <span class="op">&amp;&amp;</span> el<span class="op">.</span>offsetParent<span class="op">);</span>
+  btn<span class="op">?.</span><span class="fn">dispatchEvent</span><span class="op">(</span><span class="kw">new</span> <span class="cl">MouseEvent</span><span class="op">(</span><span class="str">'click'</span><span class="op">, {</span> bubbles<span class="op">:</span> <span class="kw">true</span> <span class="op">}));</span>
+<span class="op">}</span>
+<span class="cm">// 策略 B（兜底）：全页搜索最小匹配元素</span>
+<span class="kw">const</span> matches <span class="op">=</span> allEls<span class="op">.</span><span class="fn">filter</span><span class="op">(</span>el <span class="op">=&gt;</span> el<span class="op">.</span>textContent<span class="op">.</span><span class="fn">trim</span><span class="op">() ===</span> targetText <span class="op">&amp;&amp;</span> el<span class="op">.</span>offsetParent<span class="op">);</span>
+matches<span class="op">.</span><span class="fn">sort</span><span class="op">((</span>a<span class="op">,</span>b<span class="op">) =&gt;</span> a<span class="op">.</span>offsetWidth<span class="op">*</span>a<span class="op">.</span>offsetHeight <span class="op">-</span> b<span class="op">.</span>offsetWidth<span class="op">*</span>b<span class="op">.</span>offsetHeight<span class="op">);</span>
+matches<span class="op">[</span><span class="num">0</span><span class="op">]?.</span><span class="fn">dispatchEvent</span><span class="op">(</span><span class="kw">new</span> <span class="cl">MouseEvent</span><span class="op">(</span><span class="str">'click'</span><span class="op">, {</span> bubbles<span class="op">:</span> <span class="kw">true</span> <span class="op">}));</span></pre>
+
+    <h3>🗓️ 多层日期过滤</h3>
+    <div class="card-grid">
+      <div class="card">
+        <div class="card-title"><div class="dot" style="background:var(--red)"></div>第一层：XHS 原生筛选（UI 点击）</div>
+        <p style="font-size:13px">点击筛选按钮后，XHS 的搜索 API 本身就只返回时间范围内的笔记，interceptor.js 捕获的链接已经是预过滤结果。</p>
+      </div>
+      <div class="card">
+        <div class="card-title"><div class="dot" style="background:var(--accent1)"></div>第二层：API 时间戳预过滤</div>
+        <p style="font-size:13px">interceptor.js 捕获了 API 响应中的 <code>note_card.time</code>，background.js 用它与截止时间对比，直接跳过超期笔记，无需打开其页面。</p>
+        <pre style="font-size:11.5px;margin:8px 0 0"><code><span class="kw">function</span> <span class="fn">passesTimePreFilter</span><span class="op">(</span>timeMs<span class="op">,</span> dateFilter<span class="op">) {</span>
+  <span class="kw">if</span> <span class="op">(!</span>dateFilter <span class="op">||</span> <span class="op">!</span>timeMs<span class="op">)</span> <span class="kw">return</span> <span class="kw">true</span><span class="op">;</span>
+  <span class="kw">const</span> cutoff <span class="op">=</span> Date<span class="op">.</span><span class="fn">now</span><span class="op">() -</span> dateFilter<span class="op">*</span><span class="num">24</span><span class="op">*</span><span class="num">3600</span><span class="op">*</span><span class="num">1000</span><span class="op">;</span>
+  <span class="kw">return</span> timeMs <span class="op">&gt;=</span> cutoff<span class="op">;</span>
+<span class="op">}</span></code></pre>
+      </div>
+      <div class="card">
+        <div class="card-title"><div class="dot" style="background:var(--accent2)"></div>第三层：DOM 日期验证</div>
+        <p style="font-size:13px">打开笔记页后，从 DOM 提取发布日期文字，用 <code>parseDaysAgo()</code> 解析（支持"刚刚"/"3小时前"/"昨天"/"MM-DD"/"YYYY-MM-DD"），再次验证后丢弃超期笔记。无法解析的日期不丢弃（保守策略）。</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- ⑤ 后端服务 -->
+  <section id="backend">
+    <h2>
+      <span class="icon" style="background:#eff6ff">🐍</span>
+      后端服务（FastAPI + SQLite）
+      <span class="section-num">05</span>
+    </h2>
+    <p class="section-desc">轻量高效的 Python 后端，负责数据持久化、去重、按方案隔离展示和多格式导出。</p>
+
+    <h3>🗃️ 数据模型</h3>
+    <pre><code class="lang-label">models.py</code><span class="cm"># 三张表：Task → Note → Comment</span>
+
+<span class="kw">class</span> <span class="cl">Task</span><span class="op">(</span><span class="cl">Base</span><span class="op">):</span>
+    id          <span class="op">=</span> <span class="fn">Column</span><span class="op">(</span>Integer<span class="op">,</span> primary_key<span class="op">=</span><span class="kw">True</span><span class="op">)</span>
+    keywords    <span class="op">=</span> <span class="fn">Column</span><span class="op">(</span>Text<span class="op">)</span>        <span class="cm"># JSON 数组字符串</span>
+    status      <span class="op">=</span> <span class="fn">Column</span><span class="op">(</span>String<span class="op">)</span>      <span class="cm"># running|done|stopped|failed</span>
+    total       <span class="op">=</span> <span class="fn">Column</span><span class="op">(</span>Integer<span class="op">)</span>     <span class="cm"># 预期数量</span>
+    done        <span class="op">=</span> <span class="fn">Column</span><span class="op">(</span>Integer<span class="op">)</span>     <span class="cm"># 已完成数量</span>
+    date_filter <span class="op">=</span> <span class="fn">Column</span><span class="op">(</span>Integer<span class="op">)</span>     <span class="cm"># 0|1|7|180（天）</span>
+    created_at  <span class="op">=</span> <span class="fn">Column</span><span class="op">(</span>DateTime<span class="op">)</span>
+
+<span class="kw">class</span> <span class="cl">Note</span><span class="op">(</span><span class="cl">Base</span><span class="op">):</span>
+    id          <span class="op">=</span> <span class="fn">Column</span><span class="op">(</span>String<span class="op">,</span> primary_key<span class="op">=</span><span class="kw">True</span><span class="op">)</span>  <span class="cm"># XHS 笔记 ID</span>
+    task_id     <span class="op">=</span> <span class="fn">Column</span><span class="op">(</span>Integer<span class="op">,</span> <span class="fn">ForeignKey</span><span class="op">(</span><span class="str">"tasks.id"</span><span class="op">))</span>
+    keyword     <span class="op">=</span> <span class="fn">Column</span><span class="op">(</span>String<span class="op">)</span>
+    title<span class="op">,</span> content<span class="op">,</span> author<span class="op">,</span> author_id  <span class="cm"># 文本字段</span>
+    likes<span class="op">,</span> collects  <span class="cm"># Integer 互动数</span>
+    publish_date<span class="op">,</span> url<span class="op">,</span> source<span class="op">,</span> crawl_time
+
+<span class="kw">class</span> <span class="cl">Comment</span><span class="op">(</span><span class="cl">Base</span><span class="op">):</span>
+    id      <span class="op">=</span> <span class="fn">Column</span><span class="op">(</span>String<span class="op">,</span> primary_key<span class="op">=</span><span class="kw">True</span><span class="op">)</span>   <span class="cm"># {note_id}_c_{rank}</span>
+    note_id <span class="op">=</span> <span class="fn">Column</span><span class="op">(</span>String<span class="op">,</span> <span class="fn">ForeignKey</span><span class="op">(</span><span class="str">"notes.id"</span><span class="op">))</span>
+    content<span class="op">,</span> likes<span class="op">,</span> rank</pre>
+
+    <h3>📥 批量写入接口（POST /api/notes）</h3>
+    <p>这是插件与后端连接的核心接口。设计为 <strong>upsert</strong>（存在则更新，不存在则插入），保证同一篇笔记不管采集多少次都不会重复存储。</p>
+    <pre><code class="lang-label">routes/ingest.py</code><span class="op">@</span>router<span class="op">.</span><span class="fn">post</span><span class="op">(</span><span class="str">"/api/notes"</span><span class="op">)</span>
+<span class="kw">def</span> <span class="fn">ingest_notes</span><span class="op">(</span>req<span class="op">:</span> <span class="cl">IngestRequest</span><span class="op">,</span> db<span class="op">:</span> Session <span class="op">=</span> <span class="fn">Depends</span><span class="op">(</span>get_db<span class="op">)):</span>
+    inserted<span class="op">,</span> updated <span class="op">=</span> <span class="num">0</span><span class="op">,</span> <span class="num">0</span>
+    <span class="kw">for</span> note_in <span class="kw">in</span> req<span class="op">.</span>notes<span class="op">:</span>
+        existing <span class="op">=</span> db<span class="op">.</span><span class="fn">get</span><span class="op">(</span>Note<span class="op">,</span> note_in<span class="op">.</span>id<span class="op">)</span>
+        <span class="kw">if</span> existing<span class="op">:</span>
+            existing<span class="op">.</span>likes    <span class="op">=</span> note_in<span class="op">.</span>likes     <span class="cm"># 更新互动数</span>
+            existing<span class="op">.</span>collects <span class="op">=</span> note_in<span class="op">.</span>collects
+            updated <span class="op">+=</span> <span class="num">1</span>
+        <span class="kw">else</span><span class="op">:</span>
+            db<span class="op">.</span><span class="fn">add</span><span class="op">(</span><span class="fn">Note</span><span class="op">(</span><span class="op">**</span>note_in<span class="op">.</span><span class="fn">model_dump</span><span class="op">(),</span> task_id<span class="op">=</span>req<span class="op">.</span>task_id<span class="op">))</span>
+            inserted <span class="op">+=</span> <span class="num">1</span>
+        <span class="cm"># 评论同样 upsert</span>
+        <span class="kw">for</span> c <span class="kw">in</span> note_in<span class="op">.</span>comments<span class="op">:</span> ...
+    <span class="kw">if</span> req<span class="op">.</span>task_id<span class="op">:</span>
+        task<span class="op">.</span>done <span class="op">+=</span> inserted <span class="op">+</span> updated   <span class="cm"># 更新进度</span>
+    db<span class="op">.</span><span class="fn">commit</span><span class="op">()</span>
+    <span class="kw">return</span> <span class="op">{</span><span class="str">"inserted"</span><span class="op">:</span> inserted<span class="op">,</span> <span class="str">"updated"</span><span class="op">:</span> updated<span class="op">}</span></pre>
+
+    <h3>🗑️ 级联删除</h3>
+    <p>SQLite 默认不开启外键级联，后端手动按依赖顺序删除：评论 → 笔记 → 方案。</p>
+    <pre><code class="lang-label">routes/tasks.py</code><span class="kw">def</span> <span class="fn">_cascade_delete_task</span><span class="op">(</span>task_id<span class="op">:</span> <span class="cl">int</span><span class="op">,</span> db<span class="op">:</span> Session<span class="op">):</span>
+    note_ids <span class="op">=</span> [row[<span class="num">0</span>] <span class="kw">for</span> row <span class="kw">in</span> db<span class="op">.</span><span class="fn">query</span><span class="op">(</span>Note<span class="op">.</span>id<span class="op">)</span>
+                <span class="op">.</span><span class="fn">filter</span><span class="op">(</span>Note<span class="op">.</span>task_id <span class="op">==</span> task_id<span class="op">).</span><span class="fn">all</span><span class="op">()]</span>
+    <span class="kw">if</span> note_ids<span class="op">:</span>
+        db<span class="op">.</span><span class="fn">query</span><span class="op">(</span>Comment<span class="op">).</span><span class="fn">filter</span><span class="op">(</span>Comment<span class="op">.</span>note_id<span class="op">.</span><span class="fn">in_</span><span class="op">(</span>note_ids<span class="op">))</span>
+          <span class="op">.</span><span class="fn">delete</span><span class="op">(</span>synchronize_session<span class="op">=</span><span class="kw">False</span><span class="op">)</span>
+        db<span class="op">.</span><span class="fn">query</span><span class="op">(</span>Note<span class="op">).</span><span class="fn">filter</span><span class="op">(</span>Note<span class="op">.</span>task_id <span class="op">==</span> task_id<span class="op">)</span>
+          <span class="op">.</span><span class="fn">delete</span><span class="op">(</span>synchronize_session<span class="op">=</span><span class="kw">False</span><span class="op">)</span>
+    db<span class="op">.</span><span class="fn">query</span><span class="op">(</span>Task<span class="op">).</span><span class="fn">filter</span><span class="op">(</span>Task<span class="op">.</span>id <span class="op">==</span> task_id<span class="op">)</span>
+      <span class="op">.</span><span class="fn">delete</span><span class="op">(</span>synchronize_session<span class="op">=</span><span class="kw">False</span><span class="op">)</span></pre>
+
+    <h3>📤 Excel 导出</h3>
+    <p>用 <code>openpyxl</code> 生成格式化 Excel，两个工作表（笔记 + 评论），支持冻结行列、自动筛选和自定义列宽。文件名按方案信息自动生成（<code>20250415_职场副业_1周内.xlsx</code>），中文文件名通过 RFC 5987 编码解决浏览器兼容问题：</p>
+    <pre><code class="lang-label">routes/notes.py</code><span class="kw">from</span> urllib<span class="op">.</span>parse <span class="kw">import</span> quote
+filename <span class="op">=</span> <span class="str">f"<span class="op">{</span>date_str<span class="op">}</span>_<span class="op">{</span>kw_str<span class="op">}</span>_<span class="op">{</span>period<span class="op">}</span>.xlsx"</span>
+headers <span class="op">=</span> <span class="op">{</span>
+    <span class="str">"Content-Disposition"</span><span class="op">:</span>
+      <span class="str">f"attachment; filename*=UTF-8''<span class="op">{</span><span class="fn">quote</span>(filename)<span class="op">}</span>"</span>
+<span class="op">}</span></pre>
+  </section>
+
+  <!-- ⑥ 前端看板 -->
+  <section id="frontend">
+    <h2>
+      <span class="icon" style="background:#ecfdf5">⚛️</span>
+      前端看板（Next.js 14）
+      <span class="section-num">06</span>
+    </h2>
+    <p class="section-desc">基于 App Router 的服务端 / 客户端混合渲染，提供方案管理、笔记浏览、批量操作和多格式导出。</p>
+
+    <h3>🗂️ 方案隔离展示</h3>
+    <p>主页根据 URL 参数决定渲染哪个组件，实现方案选择和内容展示的无缝切换：</p>
+    <pre><code class="lang-label">app/page.tsx（Server Component）</code><span class="cm">// 有 task_id → 展示该方案下的笔记</span>
+<span class="cm">// 无 task_id → 展示所有方案列表（SchemeList）</span>
+<span class="kw">export default function</span> <span class="fn">Page</span><span class="op">({</span> searchParams <span class="op">}) {</span>
+  <span class="kw">const</span> taskId <span class="op">=</span> searchParams<span class="op">.</span>task_id
+    <span class="op">?</span> <span class="fn">parseInt</span><span class="op">(</span>searchParams<span class="op">.</span>task_id<span class="op">)</span>
+    <span class="op">:</span> <span class="kw">null</span><span class="op">;</span>
+  <span class="kw">if</span> <span class="op">(</span>taskId<span class="op">) </span><span class="kw">return</span> <span class="op">&lt;</span><span class="cl">NotesDashboard</span> taskId<span class="op">={</span>taskId<span class="op">} /&gt;;</span>
+  <span class="kw">return</span> <span class="op">&lt;</span><span class="cl">SchemeList</span> <span class="op">/&gt;;</span>
+<span class="op">}</span></pre>
+
+    <h3>🔧 核心组件</h3>
+    <div class="card-grid">
+      <div class="card">
+        <div class="card-title"><div class="dot" style="background:var(--red)"></div>SchemeList</div>
+        <ul class="bullet" style="font-size:13px">
+          <li>卡片式展示所有方案</li>
+          <li>Hover 显示复选框 + 删除按钮</li>
+          <li>进度条（done / total）</li>
+          <li>批量选择与删除（带确认弹窗）</li>
+          <li>方案状态徽章（运行中/已完成/失败）</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title"><div class="dot" style="background:var(--accent1)"></div>NotesDashboard</div>
+        <ul class="bullet" style="font-size:13px">
+          <li>关键词下拉筛选（多关键词方案才显示）</li>
+          <li>三种排序：最新 / 点赞最多 / 收藏最多</li>
+          <li>分页（PAGE_SIZE=20，URL 同步）</li>
+          <li>多选 + 批量删除笔记</li>
+          <li>导出按钮（Excel / Markdown）</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title"><div class="dot" style="background:var(--accent2)"></div>lib/api.ts</div>
+        <ul class="bullet" style="font-size:13px">
+          <li>所有 HTTP 请求统一封装</li>
+          <li><code>fetchNotes</code>：支持 task_id/keyword/sort/limit/offset</li>
+          <li><code>deleteTask</code>/<code>deleteTasks</code></li>
+          <li><code>deleteNote</code>/<code>deleteNotes</code></li>
+          <li>TypeScript 接口类型定义</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ⑦ 数据流 -->
+  <section id="dataflow">
+    <h2>
+      <span class="icon" style="background:#f5f3ff">🔄</span>
+      端到端数据流
+      <span class="section-num">07</span>
+    </h2>
+    <p class="section-desc">一次完整的采集 → 持久化 → 展示 → 导出流程</p>
+
+    <div class="flow">
+      <div class="flow-vertical">
+
+        <div class="flow-vrow">
+          <div class="flow-vnode red">① 用户在 popup 填写关键词 + 日期筛选，点击"开始采集"</div>
+        </div>
+        <div class="vdivider"></div>
+
+        <div class="flow-vrow">
+          <div class="flow-vnode red">② popup.js 发送 START_TASK 消息给 Service Worker</div>
+        </div>
+        <div class="vdivider"></div>
+
+        <div class="flow-vrow">
+          <div class="flow-vnode blue">③ background.js: POST /api/tasks → 创建方案，获得 task_id</div>
+        </div>
+        <div class="vdivider"></div>
+
+        <div class="flow-vrow">
+          <div class="flow-vnode blue">④ 导航至 XHS 搜索页（含 sort=time_descending）</div>
+          <span class="flow-annotation">tabs.update()</span>
+        </div>
+        <div class="vdivider"></div>
+
+        <div class="flow-vrow">
+          <div class="flow-vnode blue">⑤ applyXHSDateFilter(): 点击 XHS 日期筛选按钮</div>
+          <span class="flow-annotation">executeScript → MAIN world</span>
+        </div>
+        <div class="vdivider"></div>
+
+        <div class="flow-vrow">
+          <div class="flow-vnode red">⑥ interceptor.js 拦截 XHS API 响应，提取 token + 发布时间</div>
+          <span class="flow-annotation">写入 window.__xhsLinks</span>
+        </div>
+        <div class="vdivider"></div>
+
+        <div class="flow-vrow">
+          <div class="flow-vnode blue">⑦ getCapturedLinks(): 读取 __xhsLinks，API 时间戳预过滤</div>
+        </div>
+        <div class="vdivider"></div>
+
+        <div class="flow-vrow">
+          <div class="flow-vnode blue">⑧ 打开每篇笔记，scrapeCurrentPage(): 提取 DOM 数据</div>
+          <span class="flow-annotation">标题/正文/点赞/评论</span>
+        </div>
+        <div class="vdivider"></div>
+
+        <div class="flow-vrow">
+          <div class="flow-vnode blue">⑨ parseDaysAgo(): 解析中文日期，二次验证，保留合格笔记</div>
+        </div>
+        <div class="vdivider"></div>
+
+        <div class="flow-vrow">
+          <div class="flow-vnode blue">⑩ pushNotes(): POST /api/notes 批量上报（含 task_id）</div>
+        </div>
+        <div class="vdivider"></div>
+
+        <div class="flow-vrow">
+          <div class="flow-vnode green">⑪ FastAPI: upsert 笔记 + 评论，更新 task.done</div>
+        </div>
+        <div class="vdivider"></div>
+
+        <div class="flow-vrow">
+          <div class="flow-vnode blue">⑫ PATCH /api/tasks/{id}: 状态更新为 done</div>
+        </div>
+        <div class="vdivider"></div>
+
+        <div class="flow-vrow">
+          <div class="flow-vnode red">⑬ popup 收到 TASK_DONE，显示完成提示</div>
+        </div>
+        <div class="vdivider"></div>
+
+        <div class="flow-vrow">
+          <div class="flow-vnode green">⑭ 用户在 Next.js 前端按方案查看笔记、筛选、导出 Excel/MD</div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ⑧ API 参考 -->
+  <section id="api-ref">
+    <h2>
+      <span class="icon" style="background:#eff6ff">📡</span>
+      接口参考
+      <span class="section-num">08</span>
+    </h2>
+    <p class="section-desc">FastAPI 后端提供的全部 RESTful 接口</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>方法</th>
+            <th>路径</th>
+            <th>调用方</th>
+            <th>说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="chip green">POST</span></td>
+            <td><code>/api/tasks</code></td>
+            <td>background.js</td>
+            <td>创建采集方案（status=running）</td>
+          </tr>
+          <tr>
+            <td><span class="chip blue">GET</span></td>
+            <td><code>/api/tasks</code></td>
+            <td>前端</td>
+            <td>列出所有方案（按创建时间倒序）</td>
+          </tr>
+          <tr>
+            <td><span class="chip blue">GET</span></td>
+            <td><code>/api/tasks/{id}</code></td>
+            <td>前端</td>
+            <td>获取单个方案详情</td>
+          </tr>
+          <tr>
+            <td><span class="chip amber">PATCH</span></td>
+            <td><code>/api/tasks/{id}</code></td>
+            <td>background.js</td>
+            <td>更新方案进度 / 状态</td>
+          </tr>
+          <tr>
+            <td><span class="chip red">DELETE</span></td>
+            <td><code>/api/tasks/{id}</code></td>
+            <td>前端</td>
+            <td>删除方案（级联删除笔记 + 评论）</td>
+          </tr>
+          <tr>
+            <td><span class="chip red">DELETE</span></td>
+            <td><code>/api/tasks</code></td>
+            <td>前端</td>
+            <td>批量删除方案（body: id 数组）</td>
+          </tr>
+          <tr>
+            <td><span class="chip green">POST</span></td>
+            <td><code>/api/notes</code></td>
+            <td>background.js</td>
+            <td>批量写入笔记 + 评论（upsert）</td>
+          </tr>
+          <tr>
+            <td><span class="chip blue">GET</span></td>
+            <td><code>/api/notes</code></td>
+            <td>前端</td>
+            <td>列出笔记（task_id/keyword/sort/limit/offset）</td>
+          </tr>
+          <tr>
+            <td><span class="chip blue">GET</span></td>
+            <td><code>/api/notes/{id}</code></td>
+            <td>前端</td>
+            <td>获取笔记详情（含热评）</td>
+          </tr>
+          <tr>
+            <td><span class="chip red">DELETE</span></td>
+            <td><code>/api/notes/{id}</code></td>
+            <td>前端</td>
+            <td>删除单条笔记（级联删除评论）</td>
+          </tr>
+          <tr>
+            <td><span class="chip red">DELETE</span></td>
+            <td><code>/api/notes</code></td>
+            <td>前端</td>
+            <td>批量删除笔记（body: id 数组）</td>
+          </tr>
+          <tr>
+            <td><span class="chip blue">GET</span></td>
+            <td><code>/api/export/notes</code></td>
+            <td>前端</td>
+            <td>导出 Excel（笔记 + 评论双表，格式化）</td>
+          </tr>
+          <tr>
+            <td><span class="chip blue">GET</span></td>
+            <td><code>/api/export/notes.md</code></td>
+            <td>前端</td>
+            <td>导出 Markdown（按点赞数排序）</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>请求体示例</h3>
+    <div class="card-grid">
+      <div class="card">
+        <div class="card-title">POST /api/notes（插件上报）</div>
+        <pre style="margin:0;font-size:12px"><code><span class="kw">{</span>
+  <span class="str">"task_id"</span><span class="op">:</span> <span class="num">3</span><span class="op">,</span>
+  <span class="str">"notes"</span><span class="op">:</span> [{
+    <span class="str">"id"</span><span class="op">:</span> <span class="str">"67a3f2b8e..."</span><span class="op">,</span>
+    <span class="str">"keyword"</span><span class="op">:</span> <span class="str">"职场副业"</span><span class="op">,</span>
+    <span class="str">"title"</span><span class="op">:</span> <span class="str">"月入两万副业分享"</span><span class="op">,</span>
+    <span class="str">"likes"</span><span class="op">:</span> <span class="num">8432</span><span class="op">,</span>
+    <span class="str">"collects"</span><span class="op">:</span> <span class="num">2100</span><span class="op">,</span>
+    <span class="str">"publish_date"</span><span class="op">:</span> <span class="str">"3天前"</span><span class="op">,</span>
+    <span class="str">"url"</span><span class="op">:</span> <span class="str">"https://..."</span><span class="op">,</span>
+    <span class="str">"comments"</span><span class="op">:</span> [{
+      <span class="str">"id"</span><span class="op">:</span> <span class="str">"67a3f2b8e_c_1"</span><span class="op">,</span>
+      <span class="str">"content"</span><span class="op">:</span> <span class="str">"太干货了！"</span><span class="op">,</span>
+      <span class="str">"likes"</span><span class="op">:</span> <span class="num">234</span><span class="op">,</span>
+      <span class="str">"rank"</span><span class="op">:</span> <span class="num">1</span>
+    <span class="op">}]</span>
+  <span class="op">}]</span>
+<span class="kw">}</span></code></pre>
+      </div>
+      <div class="card">
+        <div class="card-title">GET /api/notes（前端查询）</div>
+        <pre style="margin:0;font-size:12px"><code><span class="cm"># 查询参数</span>
+task_id<span class="op">=</span><span class="num">3</span>
+keyword<span class="op">=</span>职场副业       <span class="cm"># 可选</span>
+sort<span class="op">=</span>likes            <span class="cm"># likes|collects|date</span>
+limit<span class="op">=</span><span class="num">20</span>
+offset<span class="op">=</span><span class="num">0</span>
+
+<span class="cm"># 响应</span>
+<span class="kw">{</span>
+  <span class="str">"total"</span><span class="op">:</span> <span class="num">156</span><span class="op">,</span>
+  <span class="str">"items"</span><span class="op">:</span> [...<span class="cl">Note</span>]
+<span class="kw">}</span></code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- 技术栈汇总 -->
+  <section>
+    <h2>
+      <span class="icon" style="background:#f5f3ff">⚡</span>
+      技术栈汇总
+    </h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>层级</th><th>技术</th><th>版本</th><th>用途</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>浏览器插件</td><td>Chrome Extension Manifest V3</td><td>V3</td><td>数据采集入口，跨 world 通信</td></tr>
+          <tr><td>插件拦截</td><td>Monkey Patch (fetch + XHR)</td><td>—</td><td>无侵入式 API 响应拦截</td></tr>
+          <tr><td>后端框架</td><td>FastAPI</td><td>0.115.0</td><td>RESTful API，自动生成 OpenAPI 文档</td></tr>
+          <tr><td>数据库</td><td>SQLite + SQLAlchemy</td><td>2.0.35</td><td>轻量持久化，ORM 操作</td></tr>
+          <tr><td>数据校验</td><td>Pydantic</td><td>2.9.2</td><td>请求/响应 schema 定义与校验</td></tr>
+          <tr><td>Excel 导出</td><td>openpyxl</td><td>3.1.5</td><td>格式化 Excel，冻结窗格，自动筛选</td></tr>
+          <tr><td>前端框架</td><td>Next.js App Router</td><td>14.2</td><td>SSR + 客户端混合，文件路由</td></tr>
+          <tr><td>UI 样式</td><td>Tailwind CSS</td><td>3.4</td><td>原子化 CSS，响应式布局</td></tr>
+          <tr><td>前端语言</td><td>TypeScript</td><td>5.x</td><td>类型安全，接口定义</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<!-- footer -->
+<footer style="background:#1e1e2e;color:#cdd6f4;text-align:center;padding:28px;font-size:12.5px;">
+  XHS Insight · 技术架构文档 &nbsp;|&nbsp; Chrome Extension MV3 + FastAPI + Next.js
+</footer>
+
+<script>
+  // smooth scroll for nav links
+  document.querySelectorAll('a[href^="#"]').forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      document.querySelector(a.getAttribute('href'))?.scrollIntoView({ behavior: 'smooth' });
+    });
+  });
+
+  // active nav highlight on scroll
+  const sections = document.querySelectorAll('section[id]');
+  const navLinks = document.querySelectorAll('nav a[href^="#"]');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        navLinks.forEach(a => {
+          a.style.color = a.getAttribute('href') === '#' + entry.target.id
+            ? 'var(--red)' : '';
+          a.style.borderBottomColor = a.getAttribute('href') === '#' + entry.target.id
+            ? 'var(--red)' : 'transparent';
+        });
+      }
+    });
+  }, { rootMargin: '-40% 0px -50% 0px' });
+  sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>
