@@ -322,6 +322,31 @@ async function processKeyword(tabId, keyword, maxNotes, dateFilter = 0) {
   return collected;
 }
 
+/** Create a task record in the backend and return the task ID. */
+async function createTaskRecord(keywords, total) {
+  try {
+    const resp = await fetch(`${CONFIG.BACKEND_URL}/api/tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keywords, total }),
+    });
+    const data = await resp.json();
+    return data.id || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Update task progress/status in the backend. */
+async function updateTaskRecord(taskId, patch) {
+  if (!taskId) return;
+  await fetch(`${CONFIG.BACKEND_URL}/api/tasks/${taskId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  }).catch(() => {});
+}
+
 /** Main task runner — processes all keywords sequentially. */
 async function runTask(keywords, maxNotes, dateFilter = 0) {
   stopRequested = false;
@@ -330,6 +355,9 @@ async function runTask(keywords, maxNotes, dateFilter = 0) {
   const tab = await chrome.tabs.create({ url: 'about:blank', active: false });
   const tabId = tab.id;
   let totalDone = 0;
+
+  // Register task in backend
+  const taskId = await createTaskRecord(keywords, keywords.length * maxNotes);
 
   try {
     for (const keyword of keywords) {
@@ -342,6 +370,7 @@ async function runTask(keywords, maxNotes, dateFilter = 0) {
         try {
           await pushNotes(collected);
           totalDone += collected.length;
+          await updateTaskRecord(taskId, { done: totalDone });
           sendProgress(`关键词「${keyword}」完成，共 ${collected.length} 篇`);
         } catch (e) {
           console.error('[XHS] Backend push failed:', e);
@@ -353,6 +382,7 @@ async function runTask(keywords, maxNotes, dateFilter = 0) {
     }
   } finally {
     await chrome.tabs.remove(tabId).catch(() => {});
+    await updateTaskRecord(taskId, { status: stopRequested ? 'stopped' : 'done', done: totalDone });
     sendDone(`采集完成！共采集 ${totalDone} 篇笔记`);
   }
 }

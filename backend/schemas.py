@@ -62,6 +62,17 @@ class NoteDetail(NoteOut):
     comments: list[CommentOut] = []
 
 
+class TaskCreate(BaseModel):
+    keywords: list[str]
+    total: int = 0
+
+
+class TaskUpdate(BaseModel):
+    status: Optional[str] = None
+    done: Optional[int] = None
+    total: Optional[int] = None
+
+
 class TaskOut(BaseModel):
     id: int
     keywords: Optional[str]

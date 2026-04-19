@@ -34,11 +34,12 @@ export interface NotesResponse {
 
 export interface Task {
   id: number;
-  keywords: string | null;
-  status: string;
+  keywords: string | null;      // JSON array string e.g. '["职场","AI"]'
+  status: string;               // running | done | stopped | failed
   total: number;
   done: number;
   created_at: string;
+  keywordList?: string[];       // parsed client-side
 }
 
 export async function fetchNotes(params: {
@@ -56,6 +57,16 @@ export async function fetchNotes(params: {
   const res = await fetch(`${API_BASE}/api/notes?${query}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`Failed to fetch notes: ${res.status}`);
   return res.json();
+}
+
+export async function fetchTasks(): Promise<Task[]> {
+  const res = await fetch(`${API_BASE}/api/tasks`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`Failed to fetch tasks: ${res.status}`);
+  const tasks: Task[] = await res.json();
+  return tasks.map(t => ({
+    ...t,
+    keywordList: t.keywords ? JSON.parse(t.keywords) : [],
+  }));
 }
 
 export async function fetchNote(id: string): Promise<NoteDetail> {
