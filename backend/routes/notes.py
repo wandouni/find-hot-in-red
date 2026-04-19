@@ -50,7 +50,11 @@ def export_notes_md(
 
     lines = []
     for note in notes:
-        title = note.title or "（无标题）"
+        if note.title:
+            title = note.title
+        else:
+            preview = (note.content or "").strip()[:20]
+            title = f"[无标题]{preview}"
         url = note.url or ""
         likes = note.likes or 0
         collects = note.collects or 0
