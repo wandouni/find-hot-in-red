@@ -7,7 +7,7 @@
  */
 function scrapeCurrentNote(keyword) {
   // Note detail URL pattern: /explore/<note_id>
-  const match = location.pathname.match(/\/explore\/([a-f0-9]+)/);
+  const match = location.pathname.match(/\/explore\/([0-9a-zA-Z]+)/);
   if (!match) return null;
 
   const noteId = match[1];
