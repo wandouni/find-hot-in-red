@@ -2,8 +2,6 @@
 
 小红书热门内容采集与分析工具。支持两种采集方式：**Chrome 插件**（在浏览器内采集）和 **Python 爬虫**（命令行驱动，适合批量运行），数据统一存入本地数据库，在 Web 看板中筛选、排序、导出。
 
----
-
 ## 项目结构
 
 ```
@@ -127,21 +125,21 @@ playwright install chrome   # 下载 Playwright 用的 Chrome 驱动
 
 ```bash
 # 基本用法：采集「职场副业」和「AI工具」，每词 20 篇，不限日期
-python xhs_scraper.py --keywords "职场副业" "AI工具" --max 20
+python3 xhs_scraper.py --keywords "职场副业" "AI工具" --max 20
 
 # 只采集 1 周内发布的内容
-python xhs_scraper.py --keywords "职场副业" --max 30 --days 7
+python3 xhs_scraper.py --keywords "土木" "体制内" --max 30 --days 7
 
 # 所有参数说明
 python xhs_scraper.py --help
 ```
 
-| 参数                | 说明                                                        | 默认值                  |
-| ------------------- | ----------------------------------------------------------- | ----------------------- |
-| `--keywords` / `-k` | 采集关键词，可多个                                          | 必填                    |
-| `--max` / `-m`      | 每个关键词最多采集篇数                                      | `20`                    |
+| 参数                    | 说明                                                                | 默认值                    |
+| ----------------------- | ------------------------------------------------------------------- | ------------------------- |
+| `--keywords` / `-k` | 采集关键词，可多个                                                  | 必填                      |
+| `--max` / `-m`      | 每个关键词最多采集篇数                                              | `20`                    |
 | `--days` / `-d`     | 日期筛选：`0` 不限 / `1` 1 天内 / `7` 1 周内 / `180` 半年内 | `0`                     |
-| `--backend`         | 后端地址                                                    | `http://localhost:8000` |
+| `--backend`           | 后端地址                                                            | `http://localhost:8000` |
 
 > ⚠️ **注意**：运行前确保后端已启动（`bash start.sh` 或手动启动 uvicorn）。采集结果与插件共用同一数据库，在 `localhost:3000` 直接查看。
 
@@ -204,6 +202,47 @@ npm run dev
    - `[XHS] OK: "标题" likes=N` — 成功采集
 4. 修改插件文件后，在 `chrome://extensions` 点击刷新按钮重载
 
+### 用 Playwright Codegen 录制操作并同步到代码
+
+当 XHS 前端改版导致筛选按钮/排序选项的 DOM 选择器失效时，可以用 Playwright 内置的录制工具重新录一遍人工操作，再把生成的选择器替换回代码。
+
+**第一步：启动录制（在 `scraper/` 目录下运行）**
+
+```bash
+python3 -m playwright codegen \
+  --browser chromium \
+  --channel chrome \
+  --user-data-dir .xhs_profile \
+  --lang python-async \
+  --output recorded.py \
+  "https://www.xiaohongshu.com/search_result?keyword=土木&type=51&sort=time_descending"
+```
+
+- `--user-data-dir .xhs_profile` — 复用已登录的 Cookie，无需重新登录
+- `--lang python-async` — 生成与爬虫风格一致的 async Python 代码
+- `--output recorded.py` — 录制结果写入此文件
+
+**第二步：在弹出的浏览器里手动操作一遍完整流程**
+
+1. 点击「筛选」按钮打开筛选面板
+2. 在「排序依据」区域点击「最新」
+3. 在「发布时间」区域点击「一周内」（如需日期筛选）
+4. 点击任意一篇笔记进入详情页
+5. 向下滚动一下
+6. 返回搜索页
+
+**第三步：关闭浏览器**，查看生成的 `recorded.py`，里面是 Playwright 录制的精确选择器，例如：
+
+```python
+await page.get_by_text("筛选").click()
+await page.get_by_text("最新", exact=True).click()
+await page.get_by_text("一周内", exact=True).click()
+```
+
+**第四步：把录制到的选择器替换回 `xhs_scraper.py` 的 `apply_date_filter` 函数**，用 `page.locator(...)` 原生定位器替换现有的 `page.evaluate(querySelectorAll...)` 逻辑，Playwright 原生定位器自带自动等待，比手动 `sleep` 更稳定。
+
+---
+
 ### Python 爬虫调试
 
 ```bash
@@ -262,8 +301,8 @@ server:
 
 ## API 一览
 
-| 方法  | 路径                   | 说明                                        |
-| ----- | ---------------------- | ------------------------------------------- |
+| 方法  | 路径                     | 说明                                        |
+| ----- | ------------------------ | ------------------------------------------- |
 | POST  | `/api/notes`           | 插件推送笔记数据（含评论）                  |
 | GET   | `/api/notes`           | 列表查询（keyword / sort / limit / offset） |
 | GET   | `/api/notes/{id}`      | 单篇详情（含评论）                          |

@@ -142,11 +142,16 @@ class LinkCapture:
             data = await response.json()
         except Exception:
             return
+        if not isinstance(data, dict):
+            return
         self._extract(data)
 
     def _extract(self, data: dict):
+        if not isinstance(data, dict):
+            return
+        inner = data.get("data")
         items = (
-            (data.get("data") or {}).get("items")
+            (inner.get("items") if isinstance(inner, dict) else None)
             or data.get("items")
             or []
         )
@@ -247,30 +252,37 @@ def passes_dom_filter(publish_date: str, days: int) -> bool:
 
 
 # ─────────────────────────── DOM 抓取 ────────────────────────────────
+async def close_modal(page: Page):
+    """关闭笔记 modal（codegen 录制的两种关闭按钮选择器）。"""
+    for sel in [".close > .reds-icon > use", ".close > .reds-icon"]:
+        try:
+            loc = page.locator(sel).first
+            if await loc.is_visible(timeout=1500):
+                await loc.click()
+                await sleep(rand(0.3, 0.8))
+                return
+        except Exception:
+            continue
+    try:
+        await page.keyboard.press("Escape")
+    except Exception:
+        pass
+
+
 async def scrape_note_page(page: Page, keyword: str, note_id: str) -> Optional[dict]:
     """
-    在已打开的笔记页面上提取结构化数据。
-    返回 dict 或 None（如果页面内容异常）。
+    从笔记 modal 或笔记页提取结构化数据。
+    笔记以 modal 打开时 URL 仍是搜索页，用 note_id 作为 fallback。
     """
     try:
-        # 确认还在笔记页（防止跳转到 404 或登录页）
-        path = page.url
-        m = re.search(r"/explore/([0-9a-zA-Z]+)", path)
-        if not m or (note_id and m[1] != note_id):
-            log.warning(f"  URL 不匹配：{path}")
+        url_match = re.search(r"/explore/([0-9a-zA-Z]+)", page.url)
+        effective_id = (url_match[1] if url_match else None) or note_id
+        if not effective_id:
+            log.warning(f"  无法确认笔记 ID，跳过：{page.url}")
             return None
 
-        def parse_count(text: str) -> int:
-            text = (text or "").strip().replace(",", "").replace("，", "")
-            if text.endswith("万"):
-                return round(float(text[:-1]) * 10000)
-            try:
-                return int(text)
-            except ValueError:
-                return 0
-
         result = await page.evaluate("""
-            () => {
+            (fallbackId) => {
                 function parseCount(el) {
                     if (!el) return 0;
                     const t = (el.textContent || '').trim()
@@ -279,7 +291,11 @@ async def scrape_note_page(page: Page, keyword: str, note_id: str) -> Optional[d
                     return parseInt(t) || 0;
                 }
 
-                const noteId = location.pathname.match(/\\/explore\\/([0-9a-zA-Z]+)/)?.[1] || '';
+                // URL 有 /explore/{id} 时用 URL，否则用传入的 fallbackId
+                const noteId = location.pathname.match(/\\/explore\\/([0-9a-zA-Z]+)/)?.[1]
+                               || fallbackId || '';
+                if (!noteId) return null;
+
                 const title = (
                     document.querySelector('#detail-title') ||
                     document.querySelector('.note-content .title') ||
@@ -312,7 +328,6 @@ async def scrape_note_page(page: Page, keyword: str, note_id: str) -> Optional[d
                     document.querySelector('[class*="collect"] .count')
                 );
 
-                // 日期：只接受符合格式的元素
                 const DATE_RE = /^(刚刚|\\d+\\s*分钟前|\\d+\\s*小时前|昨天|\\d+\\s*天前|\\d{1,2}-\\d{2}|\\d{4}-\\d{2}-\\d{2})$/;
                 let publishDate = '';
                 const dateCandidates = [
@@ -349,7 +364,7 @@ async def scrape_note_page(page: Page, keyword: str, note_id: str) -> Optional[d
                          likes, collects, publish_date: publishDate,
                          url: location.href, source: 'dom', comments };
             }
-        """)
+        """, effective_id)
         if not result or not result.get("id"):
             return None
         result["keyword"] = keyword
@@ -359,85 +374,85 @@ async def scrape_note_page(page: Page, keyword: str, note_id: str) -> Optional[d
         return None
 
 
-# ─────────────────────────── 日期筛选点击 ────────────────────────────
-async def apply_date_filter(page: Page, days: int):
-    """点击 XHS 搜索页的日期筛选按钮（策略 A：定位"发布时间"区域；策略 B：全页最小元素）"""
-    label = DATE_LABEL.get(days)
-    if not label:
-        return
+# ─────────────────────────── 筛选面板操作 ────────────────────────────
+async def apply_date_filter(page: Page, days: int, capture: "LinkCapture"):
+    """
+    打开筛选面板 → 点「最新」→（days>0 时）点发布时间。
+    在所有按钮点完后、等待 XHS 重载前清空 capture，确保
+    等待期间填入的全是过滤后的新结果，不含筛选前的旧链接。
+    """
+    label = DATE_LABEL.get(days) if days else None
 
-    # Step 1：打开筛选面板（点击"筛选"按钮）
+    # Step 1：打开筛选面板
     await page.evaluate("""
         () => {
-            const allEls = [...document.querySelectorAll('span,div,button,a,li')];
-            // 找"筛选"入口按钮（文字精确匹配或含筛选图标）
-            const trigger = allEls.find(el =>
-                (el.textContent.trim() === '筛选' || el.textContent.trim() === '选项') &&
-                el.offsetParent !== null
-            );
-            if (trigger) trigger.click();
+            for (const el of document.querySelectorAll('*')) {
+                if (el.offsetParent !== null && el.children.length === 0) {
+                    const t = el.textContent.trim();
+                    if (t === '筛选' || t.startsWith('筛选')) { el.click(); return; }
+                }
+            }
         }
     """)
+    await sleep(rand(1.2, 2.0))
+
+    # Step 2 & 3：用 page.mouse.click(x, y) 模拟真实鼠标点击
+    # el.click() / dispatchEvent 在 React 合成事件里不生效；
+    # mouse.click 触发完整事件链（mousemove→mousedown→mouseup→click），React 才响应。
+    async def mouse_click_text(section_label: str, button_text: str) -> str:
+        """在指定 section 区域内找到 button_text，用真实鼠标坐标点击。"""
+        bbox = await page.evaluate("""
+            ([sectionText, targetText]) => {
+                const leaves = [...document.querySelectorAll('*')].filter(n =>
+                    n.children.length === 0 && n.offsetParent !== null
+                );
+                // 先在 section 区域内找
+                const label = leaves.find(n => n.textContent.trim() === sectionText);
+                if (label) {
+                    let p = label.parentElement;
+                    for (let i = 0; i < 6; i++) {
+                        if (!p) break;
+                        const btn = [...p.querySelectorAll('*')].find(n =>
+                            n.children.length === 0 && n.offsetParent !== null &&
+                            n.textContent.trim() === targetText
+                        );
+                        if (btn) {
+                            const r = btn.getBoundingClientRect();
+                            return { x: r.left + r.width / 2, y: r.top + r.height / 2, s: 'section' };
+                        }
+                        p = p.parentElement;
+                    }
+                }
+                // 兜底：全页叶子节点第 2 个（nth 1，对应录制）
+                const all = leaves.filter(n => n.textContent.trim() === targetText);
+                const el = all[1] ?? all[0];
+                if (el) {
+                    const r = el.getBoundingClientRect();
+                    return { x: r.left + r.width / 2, y: r.top + r.height / 2,
+                             s: all[1] ? 'nth1' : 'nth0' };
+                }
+                return null;
+            }
+        """, [section_label, button_text])
+        if bbox:
+            await page.mouse.move(bbox['x'], bbox['y'])
+            await sleep(rand(0.1, 0.25))
+            await page.mouse.click(bbox['x'], bbox['y'])
+            return bbox['s']
+        return 'not-found'
+
+    sort_result = await mouse_click_text('排序依据', '最新')
+    log.info(f"  排序：最新 → {sort_result}")
     await sleep(rand(0.8, 1.4))
 
-    # Step 2：点击"最新"排序
-    await page.evaluate("""
-        () => {
-            const els = [...document.querySelectorAll('span,div,button,a,li')]
-                .filter(el => el.textContent.trim() === '最新' && el.offsetParent);
-            els.sort((a,b) => a.offsetWidth*a.offsetHeight - b.offsetWidth*b.offsetHeight);
-            els[0]?.dispatchEvent(new MouseEvent('click', {bubbles:true}));
-        }
-    """)
-    await sleep(rand(0.6, 1.2))
+    if label:
+        date_result = await mouse_click_text('发布时间', label)
+        log.info(f"  发布时间：{label} → {date_result}")
+        await sleep(rand(0.8, 1.2))
 
-    # Step 3：点击日期选项（两轮：精准 + 全局兜底）
-    clicked = await page.evaluate(f"""
-        (targetText) => {{
-            const allEls = [...document.querySelectorAll('span,div,button,a,li,section')];
-            // 策略 A：发布时间区域内查找
-            const sec = allEls.find(el =>
-                el.textContent.includes('发布时间') &&
-                el.offsetParent !== null && el.offsetWidth < 600
-            );
-            if (sec) {{
-                const opts = [...sec.querySelectorAll('span,div,button,a,li')]
-                    .filter(el => el.textContent.trim() === targetText && el.offsetParent);
-                if (opts.length) {{
-                    opts[0].dispatchEvent(new MouseEvent('click', {{bubbles:true}}));
-                    return 'A';
-                }}
-            }}
-            // 策略 B：全页最小元素
-            const matches = allEls
-                .filter(el => el.textContent.trim() === targetText && el.offsetParent);
-            matches.sort((a,b) => a.offsetWidth*a.offsetHeight - b.offsetWidth*b.offsetHeight);
-            if (matches[0]) {{
-                matches[0].dispatchEvent(new MouseEvent('click', {{bubbles:true}}));
-                return 'B';
-            }}
-            return null;
-        }}
-    """, label)
-
-    if not clicked:
-        # 面板可能还没开：再等一秒重试
-        await sleep(1.5)
-        clicked = await page.evaluate(f"""
-            (targetText) => {{
-                const matches = [...document.querySelectorAll('span,div,button,a,li')]
-                    .filter(el => el.textContent.trim() === targetText && el.offsetParent);
-                matches.sort((a,b) => a.offsetWidth*a.offsetHeight - b.offsetWidth*b.offsetHeight);
-                if (matches[0]) {{
-                    matches[0].dispatchEvent(new MouseEvent('click', {{bubbles:true}}));
-                    return 'retry';
-                }}
-                return null;
-            }}
-        """, label)
-
-    log.info(f"  日期筛选 「{label}」 → {clicked or '未找到按钮'}")
-    await sleep(rand(3.5, 5.5))   # 等待 XHS 重新加载结果
+    # 所有按钮点完后清空旧链接，等 XHS 用新条件重载搜索结果
+    capture.clear()
+    await sleep(rand(3.5, 5.5))
 
 
 # ─────────────────────────── 后端通信 ────────────────────────────────
@@ -501,93 +516,111 @@ async def process_keyword(
     task_id: int,
 ) -> list[dict]:
 
-    sort_qs = "&sort=time_descending" if days else ""
-    search_url = (
-        f"{XHS_SEARCH}?keyword={keyword}&type=51{sort_qs}"
-    )
+    search_url = f"{XHS_SEARCH}?keyword={keyword}&type=51&sort=time_descending"
 
     log.info(f"🔍 关键词：「{keyword}」 → {search_url}")
     capture.clear()
     await page.goto(search_url, wait_until="domcontentloaded")
     await sleep(rand(3, 5.5))   # 等待首屏 API 响应被拦截
 
-    # 应用日期筛选
-    if days:
-        log.info(f"  📅 设置日期筛选 {days}天 …")
-        await apply_date_filter(page, days)
+    # 打开筛选面板 → 点「最新」→（days>0 时）点发布时间
+    # capture 在函数内部的最佳时机清空，返回时已填好过滤后的链接
+    log.info(f"  📅 设置筛选：最新排序" + (f" + {days}天内" if days else ""))
+    await apply_date_filter(page, days, capture)
 
-    collected: list[dict] = []
-    seen_ids: set[str]    = set()
-    no_new_rounds         = 0
-    MAX_NO_NEW            = 8
-    notes_this_kw         = 0
+    collected: list[dict]  = []
+    seen_ids: set[str]     = set()   # href 中提取的 id
+    scraped_ids: set[str]  = set()   # 实际采集到的 id（含 modal URL 解析）
+    notes_this_kw          = 0
+    card_index             = 1    # codegen 录制：第一张卡片是 nth(1)
+    no_visible_rounds      = 0
+    MAX_NO_VISIBLE         = 5
 
     while len(collected) < max_notes:
-        links = capture.snapshot()
-        new_links = [l for l in links if l["id"] not in seen_ids]
+        link_loc = page.get_by_role("link").filter(has_text=re.compile(r"^$")).nth(card_index)
 
-        if not new_links:
-            no_new_rounds += 1
-            if no_new_rounds >= MAX_NO_NEW:
-                log.info("  无新链接，停止滚动")
+        try:
+            visible = await link_loc.is_visible(timeout=2000)
+        except Exception:
+            visible = False
+
+        if not visible:
+            no_visible_rounds += 1
+            if no_visible_rounds >= MAX_NO_VISIBLE:
+                log.info("  无更多笔记可加载，停止")
                 break
             await human_scroll(page)
+            await sleep(rand(1.5, 3.0))
             continue
 
-        no_new_rounds = 0
+        no_visible_rounds = 0
 
-        for link in new_links:
-            if len(collected) >= max_notes:
-                break
+        # 从 href 提前拿 note_id，用于去重和 API 预过滤
+        try:
+            href = await link_loc.get_attribute("href") or ""
+        except Exception:
+            href = ""
+        m = re.search(r'/explore/([0-9a-zA-Z]+)', href)
+        note_id = m[1] if m else None
 
-            note_id  = link["id"]
-            note_url = link["url"]
-            time_ms  = link["time_ms"]
+        if note_id and note_id in seen_ids:
+            card_index += 1
+            continue
+        if note_id:
             seen_ids.add(note_id)
 
-            # 第二层：API 时间戳预过滤
+        # 第二层：API 时间戳预过滤
+        if note_id:
+            link_data = capture._links.get(note_id, {})
+            time_ms   = link_data.get("time_ms", 0)
             if not passes_api_filter(time_ms, days):
                 ts = datetime.fromtimestamp(time_ms / 1000).strftime("%Y-%m-%d") if time_ms else "?"
-                log.info(f"  ⏭  API预过滤（{ts} 超出 {days}d）: {note_id}")
+                log.info(f"  ⏭  API预过滤（{ts}）: {note_id}")
+                card_index += 1
                 continue
 
-            # 8% 随机跳过（模拟用户不感兴趣）
-            if random.random() < 0.08:
-                log.debug(f"  ⏭  随机跳过: {note_id}")
-                continue
+        # 8% 随机跳过（模拟用户划过不感兴趣）
+        if random.random() < 0.08:
+            card_index += 1
+            continue
 
-            log.info(f"  → [{len(collected)+1}/{max_notes}] {note_url[:90]}")
+        log.info(f"  → [{len(collected)+1}/{max_notes}] card={card_index} {href[:80]}")
 
-            try:
-                await page.goto(note_url, wait_until="domcontentloaded")
-                await reading_delay()
+        try:
+            await link_loc.click()
+            await reading_delay()
 
-                # 30% 概率向下滚动（模拟看评论）
-                if random.random() < 0.30:
-                    await human_scroll(page, passes=2)
+            if random.random() < 0.30:
+                await human_scroll(page, passes=2)
 
-                note = await scrape_note_page(page, keyword, note_id)
+            note = await scrape_note_page(page, keyword, note_id or "")
 
-                if not note:
-                    log.warning(f"  ⚠️  抓取为空: {note_id}")
-                elif not passes_dom_filter(note.get("publish_date", ""), days):
-                    log.info(f"  ⏭  DOM日期过滤 ({note.get('publish_date')}): {note_id}")
-                else:
-                    collected.append(note)
-                    notes_this_kw += 1
-                    log.info(f"  ✅ {note.get('title','')[:30]} | 👍{note.get('likes')} ⭐{note.get('collects')}")
+            if not note:
+                log.warning(f"  ⚠️  抓取为空: card={card_index} note={note_id}")
+            elif note.get("id") in scraped_ids:
+                log.info(f"  ⏭  已采集过（modal重复）: {note.get('id')}")
+            elif not passes_dom_filter(note.get("publish_date", ""), days):
+                log.info(f"  ⏭  DOM日期过滤 ({note.get('publish_date')}): {note_id}")
+            else:
+                # 用 capture 中的真实笔记 URL 替换 modal 下 location.href（搜索页 URL）
+                real_id = note["id"]
+                scraped_ids.add(real_id)
+                if real_id in capture._links:
+                    note["url"] = capture._links[real_id]["url"]
+                collected.append(note)
+                notes_this_kw += 1
+                log.info(f"  ✅ {note.get('title','')[:30]} | 👍{note.get('likes')} ⭐{note.get('collects')}")
 
-            except Exception as e:
-                log.warning(f"  ❌ 访问笔记出错 {note_id}: {e}")
+        except Exception as e:
+            log.warning(f"  ❌ 访问笔记出错 card={card_index}: {e}")
 
-            finally:
-                # 回到搜索页，清空 token 缓存，等新 API 响应填充
-                capture.clear()
-                await page.goto(search_url, wait_until="domcontentloaded")
-                await sleep(rand(1.5, 4.0))
+        finally:
+            await close_modal(page)
+            await sleep(rand(0.5, 1.5))
 
-            await browse_delay()
-            await maybe_rest(notes_this_kw)
+        card_index += 1
+        await browse_delay()
+        await maybe_rest(notes_this_kw)
 
     # 批量上报后端
     if collected:
