@@ -6,3 +6,6 @@ node_modules/
 .next/
 frontend/.next/
 *.db
+
+# Chrome 浏览器 profile（含 Cookie、登录凭据，不入库）
+scraper/.xhs_profile/

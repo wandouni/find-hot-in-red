@@ -1,6 +1,6 @@
 # XHS Insight
 
-小红书热门内容采集与分析工具。通过 Chrome 插件抓取搜索结果页的笔记数据，存入本地数据库，在 Web 看板中筛选、排序、导出。
+小红书热门内容采集与分析工具。支持两种采集方式：**Chrome 插件**（在浏览器内采集）和 **Python 爬虫**（命令行驱动，适合批量运行），数据统一存入本地数据库，在 Web 看板中筛选、排序、导出。
 
 ---
 
@@ -33,6 +33,10 @@ find-hot-in-red/
 │       ├── tasks/page.tsx      # 采集任务记录
 │       └── notes/[id]/page.tsx # 笔记详情页
 │
+├── scraper/            # Python 爬虫（Playwright 驱动）
+│   ├── xhs_scraper.py  # 主脚本
+│   └── requirements.txt
+│
 ├── config.yaml         # 统一配置（端口、延迟、LLM 预留）
 ├── setup.sh            # 首次初始化
 └── start.sh            # 一键启动
@@ -43,20 +47,32 @@ find-hot-in-red/
 ## 功能说明
 
 ### Chrome 插件
+
 - 输入关键词（每行一个），设置每词采集数量（最多 50 篇）
-- 可按**发表日期**筛选：不限 / 1天内 / 2天内 / 1周内
-- 自动在小红书搜索页采集笔记：标题、作者、点赞、收藏、正文、前10条热评
-- 每次采集作为一个「任务」记录到后端
+- 可按**发表日期**筛选：不限 / 1 天内 / 1 周内 / 半年内
+- 自动在小红书搜索页采集笔记：标题、作者、点赞、收藏、正文、前 10 条热评
+- 每次采集作为一个「方案」记录到后端，方案间数据互相隔离
+
+### Python 爬虫
+
+- 命令行参数指定关键词、数量、日期范围，无需手动操作浏览器
+- 基于 Playwright 驱动真实 Chrome，登录态持久化，无需每次重新登录
+- 拦截 XHS API 响应提取 token（与插件同一机制），三层日期过滤
+- 全程随机延迟 + 仿人滚动，反检测策略与插件一致
+- 采集结果通过后端 API 写入，前端无需改动即可查看
 
 ### 数据看板（localhost:3000）
+
 - **数据看板**：按关键词筛选，按点赞/收藏/时间排序，分页浏览
 - **采集任务**：查看每次采集记录，含关键词、进度条、状态
 - **导出**：一键导出当前筛选结果为 Excel（两个 Sheet：笔记 + 评论）或 Markdown
 
 ### 导出格式
+
 **Excel**：首行冻结 + 标题列冻结 + 筛选下拉，笔记 Sheet + 评论 Sheet
 
 **Markdown**（按点赞数从高到低）：
+
 ```
 [笔记标题](链接)
 点赞数量：1234；收藏数量：567；
@@ -71,11 +87,11 @@ find-hot-in-red/
 
 ### 环境要求
 
-| 工具 | 版本 |
-|------|------|
-| Python | 3.10+ |
-| Node.js | 18+ |
-| Chrome | 111+（支持 content_scripts MAIN world） |
+| 工具    | 版本                                    |
+| ------- | --------------------------------------- |
+| Python  | 3.10+                                   |
+| Node.js | 18+                                     |
+| Chrome  | 111+（支持 content_scripts MAIN world） |
 
 ### 第一次使用
 
@@ -90,6 +106,46 @@ bash start.sh
 ```
 
 `start.sh` 启动后会自动打开 `http://localhost:3000`。
+
+### Python 爬虫
+
+> **适用场景**：不想在浏览器里手动操作、需要批量定时运行、或插件采集受限时。
+
+**第一步：安装依赖（只需一次）**
+
+```bash
+cd scraper
+pip install -r requirements.txt
+playwright install chrome   # 下载 Playwright 用的 Chrome 驱动
+```
+
+**第二步：首次登录**
+
+首次运行时会弹出真实 Chrome 窗口，手动登录小红书账号，之后 Cookie 自动保存到 `scraper/.xhs_profile/`，后续运行无需重复登录。
+
+**第三步：运行采集**
+
+```bash
+# 基本用法：采集「职场副业」和「AI工具」，每词 20 篇，不限日期
+python xhs_scraper.py --keywords "职场副业" "AI工具" --max 20
+
+# 只采集 1 周内发布的内容
+python xhs_scraper.py --keywords "职场副业" --max 30 --days 7
+
+# 所有参数说明
+python xhs_scraper.py --help
+```
+
+| 参数                | 说明                                                        | 默认值                  |
+| ------------------- | ----------------------------------------------------------- | ----------------------- |
+| `--keywords` / `-k` | 采集关键词，可多个                                          | 必填                    |
+| `--max` / `-m`      | 每个关键词最多采集篇数                                      | `20`                    |
+| `--days` / `-d`     | 日期筛选：`0` 不限 / `1` 1 天内 / `7` 1 周内 / `180` 半年内 | `0`                     |
+| `--backend`         | 后端地址                                                    | `http://localhost:8000` |
+
+> ⚠️ **注意**：运行前确保后端已启动（`bash start.sh` 或手动启动 uvicorn）。采集结果与插件共用同一数据库，在 `localhost:3000` 直接查看。
+
+---
 
 ### 安装 Chrome 插件
 
@@ -148,19 +204,41 @@ npm run dev
    - `[XHS] OK: "标题" likes=N` — 成功采集
 4. 修改插件文件后，在 `chrome://extensions` 点击刷新按钮重载
 
+### Python 爬虫调试
+
+```bash
+# 查看详细日志（DEBUG 级别）
+python3 xhs_scraper.py --keywords "职场副业" --max 5 --days 7
+```
+
+日志说明：
+
+- `✅ 标题 | 👍N ⭐N` — 成功采集一篇笔记
+- `⏭  API预过滤` — 该笔记发布时间超出筛选范围，跳过（未打开页面）
+- `⏭  DOM日期过滤` — 打开页面后确认超期，丢弃
+- `📦 上报后端：inserted=N updated=N` — 成功写入数据库
+- `💤 短暂休息 Xs` — 正常的防检测停顿
+
+**Cookie 失效 / 需要重新登录**：删除 `scraper/.xhs_profile/` 目录后重新运行，会再次弹出登录窗口。
+
+---
+
 ### 常见问题
 
 **插件采集不到数据（Captured=0）**
+
 - 检查小红书是否已登录
 - 在小红书搜索页打开 DevTools → Console，查看是否有 `[XHS-intercept]` 日志
 - 重新加载插件后刷新小红书页面再试
 
 **后端报错 / 无法连接**
+
 - 确认 `bash start.sh` 已运行
 - 检查端口是否被占用：`lsof -i :8000`
 - 多余的 uvicorn 进程：`pkill -f uvicorn`
 
 **Excel 下载显示 Note not found**
+
 - 后端可能还在运行旧版本，重启：`pkill -f uvicorn && bash start.sh`
 
 ---
@@ -171,9 +249,9 @@ npm run dev
 
 ```yaml
 crawler:
-  max_notes_per_keyword: 30   # 每词默认采集上限
-  delay_min_ms: 1500          # 请求间最小延迟（毫秒）
-  delay_max_ms: 4000          # 请求间最大延迟（毫秒）
+  max_notes_per_keyword: 30 # 每词默认采集上限
+  delay_min_ms: 1500 # 请求间最小延迟（毫秒）
+  delay_max_ms: 4000 # 请求间最大延迟（毫秒）
 
 server:
   backend_port: 8000
@@ -184,13 +262,13 @@ server:
 
 ## API 一览
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/notes` | 插件推送笔记数据（含评论） |
-| GET | `/api/notes` | 列表查询（keyword / sort / limit / offset） |
-| GET | `/api/notes/{id}` | 单篇详情（含评论） |
-| GET | `/api/tasks` | 采集任务列表 |
-| POST | `/api/tasks` | 创建采集任务 |
-| PATCH | `/api/tasks/{id}` | 更新任务进度/状态 |
-| GET | `/api/export/notes` | 导出 Excel（?keyword=xxx） |
-| GET | `/api/export/notes.md` | 导出 Markdown（按点赞排序） |
+| 方法  | 路径                   | 说明                                        |
+| ----- | ---------------------- | ------------------------------------------- |
+| POST  | `/api/notes`           | 插件推送笔记数据（含评论）                  |
+| GET   | `/api/notes`           | 列表查询（keyword / sort / limit / offset） |
+| GET   | `/api/notes/{id}`      | 单篇详情（含评论）                          |
+| GET   | `/api/tasks`           | 采集任务列表                                |
+| POST  | `/api/tasks`           | 创建采集任务                                |
+| PATCH | `/api/tasks/{id}`      | 更新任务进度/状态                           |
+| GET   | `/api/export/notes`    | 导出 Excel（?keyword=xxx）                  |
+| GET   | `/api/export/notes.md` | 导出 Markdown（按点赞排序）                 |
